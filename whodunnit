@@ -1,0 +1,632 @@
+#!/usr/bin/env python3
+"""whodunnit — generate a git contributor dashboard for a repository.
+
+Usage:
+    whodunnit [REPO] [--since DATE] [--until DATE] [-o OUT] [--open]
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import webbrowser
+from collections import Counter, defaultdict
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+TEMPLATE = HERE / "template.html"
+
+# Categories let us answer "are line counts dominated by HTML / config / docs?"
+# Order here is the display order in the dashboard.
+CATEGORY_ORDER = ["code", "markup", "config", "data", "lockfile", "other"]
+
+EXT_CATEGORIES = {
+    "code": {
+        ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
+        ".java", ".kt", ".kts", ".scala", ".groovy", ".clj",
+        ".go", ".rs", ".c", ".h", ".cc", ".cpp", ".hpp", ".m", ".mm",
+        ".rb", ".php", ".cs", ".swift", ".dart", ".lua", ".ex", ".exs",
+        ".sh", ".zsh", ".bash", ".fish", ".ps1",
+        ".sql", ".feature", ".ipynb",
+        "makefile", "rakefile",
+    },
+    "markup": {
+        ".html", ".htm",
+        ".css", ".scss", ".sass", ".less",
+        ".vue", ".svelte",
+        ".md", ".rst", ".adoc", ".txt",
+        ".tpl", ".ftl", ".mustache", ".hbs", ".ejs", ".pug",
+        ".liquid", ".twig", ".thymeleaf", ".jsp", ".jspx",
+    },
+    "config": {
+        ".yaml", ".yml", ".json", ".jsonc", ".xml",
+        ".toml", ".ini", ".conf", ".cfg",
+        ".properties", ".env",
+        ".dockerfile", ".tf", ".hcl", ".nix",
+        ".gradle", ".pom",
+        ".gitignore", ".gitattributes", ".editorconfig", ".dockerignore",
+        ".nvmrc", ".node-version", ".python-version", ".tool-versions",
+        ".envrc", ".prettierrc", ".eslintrc", ".babelrc", ".rubocop",
+        "gemfile", "podfile",
+    },
+    "data": {
+        ".csv", ".tsv", ".graphql", ".gql", ".proto", ".avsc",
+        ".http",
+    },
+    "lockfile": {"lockfile"},
+}
+
+EXT_TO_CATEGORY = {ext: cat for cat, exts in EXT_CATEGORIES.items() for ext in exts}
+
+LOCKFILES = {
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    "gemfile.lock", "cargo.lock", "poetry.lock", "uv.lock",
+    "composer.lock", "go.sum", "podfile.lock",
+}
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        errors="replace",
+    ).stdout
+
+
+def normalize_renamed_path(path: str) -> str:
+    """Resolve git's rename notation to the post-rename path.
+
+    `src/{old => new}/Foo.kt`  -> `src/new/Foo.kt`
+    `old.kt => new.kt`         -> `new.kt`
+    """
+    if "{" in path and "=>" in path and "}" in path:
+        try:
+            pre, rest = path.split("{", 1)
+            inner, post = rest.split("}", 1)
+            _, _, new = inner.partition("=>")
+            return (pre + new.strip() + post).replace("//", "/")
+        except ValueError:
+            return path
+    if " => " in path:
+        return path.split(" => ", 1)[1].strip()
+    return path
+
+
+def list_existing_files(repo: Path, until: str | None):
+    """Return the set of paths in the repo tree at the end of the window.
+
+    Uses HEAD when no --until is given. Returns None if listing fails,
+    so callers can fall back to "treat everything as alive".
+    """
+    rev = "HEAD"
+    if until:
+        try:
+            r = git(repo, "log", "-1", "--pretty=%H", f"--until={until}").strip()
+            if r:
+                rev = r
+        except subprocess.CalledProcessError:
+            pass
+    try:
+        out = git(repo, "ls-tree", "-r", "--name-only", rev)
+    except subprocess.CalledProcessError:
+        return None
+    return {line for line in out.splitlines() if line.strip()}
+
+
+def ext_of(path: str) -> str:
+    """Return a normalized extension label for a path."""
+    path = normalize_renamed_path(path)
+    base = os.path.basename(path).lower()
+    if base in LOCKFILES:
+        return "lockfile"
+    if base.startswith("dockerfile"):
+        return ".dockerfile"
+    if base.startswith(".env"):
+        return ".env"
+    # No-extension dotfiles → use the basename itself, e.g. ".gitignore"
+    if base.startswith(".") and "." not in base[1:]:
+        return base
+    if base in {"makefile", "rakefile", "gemfile", "podfile"}:
+        return base
+    _, ext = os.path.splitext(base)
+    if not ext:
+        return "(no ext)"
+    return ext
+
+
+def category_of(ext: str) -> str:
+    return EXT_TO_CATEGORY.get(ext, "other")
+
+
+def collect_all_commits(repo, since, until):
+    args = ["log", "--pretty=%aN%x09%aI"]
+    if since: args.append(f"--since={since}")
+    if until: args.append(f"--until={until}")
+    rows = []
+    for line in git(repo, *args).splitlines():
+        if not line.strip():
+            continue
+        try:
+            name, iso = line.split("\t", 1)
+        except ValueError:
+            continue
+        rows.append((name, iso))
+    return rows
+
+
+def iter_file_changes(repo, since, until):
+    """Yield (author, iso, path, added, removed, is_binary) for non-merge commits."""
+    args = ["log", "--pretty=format:__C__%x09%aN%x09%aI", "--numstat", "--no-merges"]
+    if since: args.append(f"--since={since}")
+    if until: args.append(f"--until={until}")
+    out = git(repo, *args)
+    author = iso = None
+    for line in out.splitlines():
+        if line.startswith("__C__\t"):
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                _, author, iso = parts[0], parts[1], parts[2]
+            continue
+        if not line.strip() or author is None:
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        a_str, r_str, path = parts[0], parts[1], parts[2]
+        path = normalize_renamed_path(path)
+        if a_str == "-" or r_str == "-":
+            yield author, iso, path, 0, 0, True
+            continue
+        try:
+            yield author, iso, path, int(a_str), int(r_str), False
+        except ValueError:
+            continue
+
+
+def build_data(repo, since, until):
+    commits = collect_all_commits(repo, since, until)
+
+    commits_per_author = Counter()
+    monthly = defaultdict(Counter)
+    yearly = defaultdict(Counter)
+    yearly_lines = defaultdict(lambda: defaultdict(lambda: {"added": 0, "removed": 0}))
+    first_seen, last_seen = {}, {}
+    per_author_dow_hour = defaultdict(lambda: [[0] * 24 for _ in range(7)])
+    active_months_per_author = defaultdict(set)
+
+    for name, iso in commits:
+        try:
+            dt = datetime.fromisoformat(iso)
+        except ValueError:
+            continue
+        commits_per_author[name] += 1
+        month, year, day = iso[:7], iso[:4], iso[:10]
+        monthly[month][name] += 1
+        yearly[year][name] += 1
+        active_months_per_author[name].add(month)
+        if name not in first_seen or day < first_seen[name]: first_seen[name] = day
+        if name not in last_seen  or day > last_seen[name]:  last_seen[name] = day
+        per_author_dow_hour[name][dt.weekday()][dt.hour] += 1
+
+    months = sorted(monthly.keys())
+    years = sorted(yearly.keys())
+    authors = sorted(commits_per_author.keys(), key=lambda a: commits_per_author[a], reverse=True)
+
+    added = defaultdict(int)
+    removed = defaultdict(int)
+    file_changes = Counter()
+    file_authors = defaultdict(Counter)
+    ext_totals = defaultdict(lambda: {"file_touches": 0, "added": 0, "removed": 0, "files": set()})
+    author_ext = defaultdict(Counter)
+    author_cat = defaultdict(lambda: defaultdict(lambda: {"added": 0, "removed": 0, "touches": 0}))
+    # author -> month -> added lines
+    monthly_added_all = defaultdict(lambda: defaultdict(int))
+    monthly_added_code = defaultdict(lambda: defaultdict(int))
+    # month -> category -> added lines (for repo composition over time)
+    monthly_added_by_cat = defaultdict(lambda: defaultdict(int))
+
+    for name, iso, path, a, r, _binary in iter_file_changes(repo, since, until):
+        added[name] += a
+        removed[name] += r
+        file_changes[path] += 1
+        file_authors[path][name] += 1
+        year = iso[:4]
+        month = iso[:7]
+        yearly_lines[year][name]["added"] += a
+        yearly_lines[year][name]["removed"] += r
+        ext = ext_of(path)
+        cat = category_of(ext)
+        ext_totals[ext]["file_touches"] += 1
+        ext_totals[ext]["added"] += a
+        ext_totals[ext]["removed"] += r
+        ext_totals[ext]["files"].add(path)
+        author_ext[name][ext] += 1
+        author_cat[name][cat]["added"] += a
+        author_cat[name][cat]["removed"] += r
+        author_cat[name][cat]["touches"] += 1
+        monthly_added_all[name][month] += a
+        if cat == "code":
+            monthly_added_code[name][month] += a
+        monthly_added_by_cat[month][cat] += a
+
+    # Filter file-level analyses to files that still exist in the tree at
+    # the end of the window. History-level stats (commits, lines added) stay
+    # unfiltered — they're about activity, not current state.
+    existing_files = list_existing_files(repo, until)
+    if existing_files is not None:
+        file_authors_live = {p: ac for p, ac in file_authors.items() if p in existing_files}
+        file_changes_live = Counter({p: c for p, c in file_changes.items() if p in existing_files})
+    else:
+        file_authors_live = file_authors
+        file_changes_live = file_changes
+
+    hotspots = []
+    for path, count in file_changes_live.most_common(30):
+        fa = file_authors_live[path]
+        top_author, top_count = fa.most_common(1)[0]
+        hotspots.append({
+            "path": path,
+            "changes": count,
+            "authors_touched": len(fa),
+            "top_author": top_author,
+            "top_author_share": round(top_count / count, 3) if count else 0,
+            "ext": ext_of(path),
+            "category": category_of(ext_of(path)),
+        })
+
+    velocity = {
+        "months": months,
+        "datasets": [
+            {"name": a, "data": [monthly[m].get(a, 0) for m in months]} for a in authors
+        ],
+    }
+
+    cumulative = []
+    for a in authors:
+        running, series = 0, []
+        for m in months:
+            running += monthly[m].get(a, 0)
+            series.append(running)
+        cumulative.append({"name": a, "data": series})
+
+    cumulative_lines_all = []
+    cumulative_lines_code = []
+    for a in authors:
+        r_all = r_code = 0
+        s_all, s_code = [], []
+        for m in months:
+            r_all += monthly_added_all[a].get(m, 0)
+            r_code += monthly_added_code[a].get(m, 0)
+            s_all.append(r_all)
+            s_code.append(r_code)
+        cumulative_lines_all.append({"name": a, "data": s_all})
+        cumulative_lines_code.append({"name": a, "data": s_code})
+
+    per_year = []
+    for y in years:
+        rows = []
+        for name, c in sorted(yearly[y].items(), key=lambda x: -x[1]):
+            ya = yearly_lines[y].get(name, {"added": 0, "removed": 0})
+            rows.append({"name": name, "commits": c, "added": ya["added"], "removed": ya["removed"]})
+        per_year.append({"year": y, "rows": rows, "total": sum(yearly[y].values())})
+
+    ext_rows = sorted(
+        ({
+            "ext": ext,
+            "category": category_of(ext),
+            "file_touches": agg["file_touches"],
+            "added": agg["added"],
+            "removed": agg["removed"],
+            "files": len(agg["files"]),
+        } for ext, agg in ext_totals.items()),
+        key=lambda r: -r["file_touches"],
+    )
+
+    monthly_composition = {
+        "months": months,
+        "datasets": [
+            {"category": c, "data": [monthly_added_by_cat[m].get(c, 0) for m in months]}
+            for c in CATEGORY_ORDER
+        ],
+    }
+
+    # Per-author category breakdown (added/removed/touches per category)
+    author_categories = []
+    for a in authors:
+        cats = {}
+        for cat in CATEGORY_ORDER:
+            c = author_cat[a].get(cat, {"added": 0, "removed": 0, "touches": 0})
+            cats[cat] = c
+        author_categories.append({"name": a, "categories": cats})
+
+    per_author_punchcards = [
+        {"name": a, "commits": commits_per_author[a], "grid": per_author_dow_hour[a]}
+        for a in authors
+    ]
+
+    # ---------- Bus-factor / risk analysis ----------
+    ref_day = max(last_seen.values()) if last_seen else None
+
+    def status_of(last_day):
+        if not last_day or not ref_day:
+            return "active"
+        gap = (datetime.fromisoformat(ref_day) - datetime.fromisoformat(last_day)).days
+        if gap <= 90: return "active"
+        if gap <= 365: return "hiatus"
+        return "gone"
+
+    author_status = {a: status_of(last_seen.get(a)) for a in authors}
+
+    # File ownership: only consider files that still exist.
+    file_author_sets = {p: set(ac.keys()) for p, ac in file_authors_live.items()}
+
+    per_author_risk = []
+    for a in authors:
+        solo_paths = [p for p, s in file_author_sets.items() if s == {a}]
+        dominant_paths = [
+            p for p, ac in file_authors_live.items()
+            if len(ac) > 1 and ac.most_common(1)[0][0] == a and ac[a] / sum(ac.values()) > 0.5
+        ]
+        top_solo = sorted(
+            ((p, file_changes_live[p]) for p in solo_paths), key=lambda x: -x[1]
+        )[:15]
+        per_author_risk.append({
+            "name": a,
+            "status": author_status.get(a, "active"),
+            "solo_files": len(solo_paths),
+            "dominant_files": len(dominant_paths),
+            "solo_changes": sum(file_changes_live[p] for p in solo_paths),
+            "top_solo": [
+                {"path": p, "changes": c, "category": category_of(ext_of(p))}
+                for p, c in top_solo
+            ],
+        })
+
+    # Counts driven by current status
+    orphaned_now = sum(
+        1 for s in file_author_sets.values()
+        if len(s) == 1 and author_status.get(next(iter(s))) == "gone"
+    )
+    at_risk_hiatus = sum(
+        1 for s in file_author_sets.values()
+        if len(s) == 1 and author_status.get(next(iter(s))) == "hiatus"
+    )
+
+    # Classic bus factor via greedy removal: smallest N s.t. >50% files orphaned.
+    all_authors_in_files = set()
+    for s in file_author_sets.values():
+        all_authors_in_files.update(s)
+    total_files_with_authors = len(file_author_sets)
+    threshold = total_files_with_authors / 2
+    bf_removed = []
+    while len(bf_removed) < len(all_authors_in_files):
+        removed_set = set(bf_removed)
+        orphan_count = sum(1 for s in file_author_sets.values() if s.issubset(removed_set))
+        if orphan_count > threshold:
+            break
+        best_author, best_count = None, -1
+        for candidate in all_authors_in_files - removed_set:
+            trial = removed_set | {candidate}
+            cnt = sum(1 for s in file_author_sets.values() if s.issubset(trial))
+            if cnt > best_count:
+                best_count, best_author = cnt, candidate
+        if best_author is None:
+            break
+        bf_removed.append(best_author)
+    bus_factor = len(bf_removed)
+
+    # Onboarding hit list: highest-churn solo files with non-active authors first
+    status_priority = {"gone": 0, "hiatus": 1, "active": 2}
+    solo_all = []
+    for p, s in file_author_sets.items():
+        if len(s) != 1:
+            continue
+        owner = next(iter(s))
+        solo_all.append({
+            "path": p,
+            "owner": owner,
+            "status": author_status.get(owner, "active"),
+            "changes": file_changes_live[p],
+            "category": category_of(ext_of(p)),
+        })
+    solo_all.sort(key=lambda r: (status_priority[r["status"]], -r["changes"]))
+    onboarding_hits = solo_all[:30]
+
+    # Group solo files by directory — subsystem-level view of the hit list.
+    def dir_of(p):
+        d = os.path.dirname(p)
+        return d if d else "(root)"
+
+    dir_solo = defaultdict(lambda: {"churn": 0, "owners": Counter(), "categories": Counter()})
+    for h in solo_all:
+        d = dir_of(h["path"])
+        dir_solo[d]["churn"] += h["changes"]
+        dir_solo[d]["owners"][h["owner"]] += 1
+        dir_solo[d]["categories"][h["category"]] += 1
+
+    onboarding_dirs = []
+    for d, info in dir_solo.items():
+        owner_rows = []
+        worst = "active"
+        for owner, count in info["owners"].most_common():
+            st = author_status.get(owner, "active")
+            owner_rows.append({"name": owner, "files": count, "status": st})
+            if status_priority[st] < status_priority[worst]:
+                worst = st
+        onboarding_dirs.append({
+            "dir": d,
+            "n_files": sum(info["owners"].values()),
+            "churn": info["churn"],
+            "owners": owner_rows,
+            "worst_status": worst,
+            "top_category": info["categories"].most_common(1)[0][0] if info["categories"] else "other",
+        })
+    onboarding_dirs.sort(key=lambda d: (status_priority[d["worst_status"]], -d["churn"]))
+    onboarding_dirs = onboarding_dirs[:30]
+
+    # Per-directory bus factor — for any dir with >= 5 alive files.
+    dir_files = defaultdict(list)
+    for p in file_author_sets.keys():
+        dir_files[dir_of(p)].append(p)
+
+    dir_bus = []
+    for d, paths in dir_files.items():
+        if len(paths) < 5:
+            continue
+        file_sets = {p: file_author_sets[p] for p in paths}
+        authors_here = set()
+        for s in file_sets.values():
+            authors_here.update(s)
+        threshold_d = len(paths) / 2
+        removed_d = []
+        while len(removed_d) < len(authors_here):
+            rset = set(removed_d)
+            orphan = sum(1 for s in file_sets.values() if s.issubset(rset))
+            if orphan > threshold_d:
+                break
+            best, best_c = None, -1
+            for cand in authors_here - rset:
+                trial = rset | {cand}
+                cnt = sum(1 for s in file_sets.values() if s.issubset(trial))
+                if cnt > best_c:
+                    best_c, best = cnt, cand
+            if best is None:
+                break
+            removed_d.append(best)
+        # Worst status among the people who'd need to leave
+        worst = "active"
+        for name in removed_d:
+            st = author_status.get(name, "active")
+            if status_priority[st] < status_priority[worst]:
+                worst = st
+        cat_counts = Counter(category_of(ext_of(p)) for p in paths)
+        top_cat = cat_counts.most_common(1)[0][0]
+        dir_bus.append({
+            "dir": d,
+            "n_files": len(paths),
+            "n_authors": len(authors_here),
+            "bus_factor": len(removed_d),
+            "removed_order": removed_d,
+            "worst_status": worst,
+            "top_category": top_cat,
+        })
+    dir_bus.sort(key=lambda d: (d["bus_factor"], -d["n_files"]))
+    dir_bus = dir_bus[:30]
+
+    # Ownership concentration histogram
+    bin_edges  = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    bin_labels = ["50–60%", "60–70%", "70–80%", "80–90%", "90–<100%", "solo (100%)"]
+    bin_counts = [0] * len(bin_labels)
+    for p, ac in file_authors_live.items():
+        total = sum(ac.values())
+        if not total:
+            continue
+        if len(ac) == 1:
+            bin_counts[-1] += 1
+            continue
+        share = ac.most_common(1)[0][1] / total
+        for i in range(len(bin_edges) - 1):
+            if share < bin_edges[i + 1]:
+                bin_counts[i] += 1
+                break
+        else:
+            # share == 1.0 with multiple authors — mathematically can't happen, but safe.
+            bin_counts[-2] += 1
+    ownership_distribution = [{"label": l, "count": c} for l, c in zip(bin_labels, bin_counts)]
+
+    repo_path = Path(repo)
+    try:
+        origin = git(repo, "config", "--get", "remote.origin.url").strip()
+    except subprocess.CalledProcessError:
+        origin = ""
+
+    return {
+        "repo": str(repo_path),
+        "repo_name": repo_path.name,
+        "origin": origin,
+        "since": since or "",
+        "until": until or "",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "totals": {
+            "commits": sum(commits_per_author.values()),
+            "added": sum(added.values()),
+            "removed": sum(removed.values()),
+            "files_touched": len(file_changes),
+            "files_touched_alive": len(file_changes_live),
+            "files_alive": len(existing_files) if existing_files is not None else None,
+            "first_day": min(first_seen.values()) if first_seen else "",
+            "last_day": max(last_seen.values()) if last_seen else "",
+        },
+        "category_order": CATEGORY_ORDER,
+        "authors": [
+            {
+                "name": a,
+                "commits": commits_per_author[a],
+                "added": added.get(a, 0),
+                "removed": removed.get(a, 0),
+                "avg_lines": round((added.get(a, 0) + removed.get(a, 0)) / commits_per_author[a]) if commits_per_author[a] else 0,
+                "first": first_seen.get(a, ""),
+                "last": last_seen.get(a, ""),
+                "active_months": len(active_months_per_author[a]),
+            }
+            for a in authors
+        ],
+        "months": months,
+        "years": years,
+        "cumulative": cumulative,
+        "cumulative_lines_all": cumulative_lines_all,
+        "cumulative_lines_code": cumulative_lines_code,
+        "velocity": velocity,
+        "per_year": per_year,
+        "per_author_punchcards": per_author_punchcards,
+        "hotspots": hotspots,
+        "extensions": ext_rows,
+        "author_categories": author_categories,
+        "monthly_composition": monthly_composition,
+        "bus_factor": {
+            "n": bus_factor,
+            "total_files": total_files_with_authors,
+            "removed_order": bf_removed,
+            "orphaned_now": orphaned_now,
+            "at_risk_hiatus": at_risk_hiatus,
+        },
+        "per_author_risk": per_author_risk,
+        "onboarding_hits": onboarding_hits,
+        "onboarding_dirs": onboarding_dirs,
+        "dir_bus": dir_bus,
+        "ownership_distribution": ownership_distribution,
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="whodunnit", description="Generate a git contributor dashboard.")
+    ap.add_argument("repo", nargs="?", default=".", help="path to git repo (default: cwd)")
+    ap.add_argument("--since", help="git log --since value (e.g. 2025-01-01)")
+    ap.add_argument("--until", help="git log --until value")
+    ap.add_argument("-o", "--out", default="whodunnit.html", help="output HTML path")
+    ap.add_argument("--open", action="store_true", help="open the result in your browser")
+    args = ap.parse_args()
+
+    repo = Path(args.repo).expanduser().resolve()
+    if not (repo / ".git").exists():
+        sys.exit(f"not a git repo: {repo}")
+    if not TEMPLATE.exists():
+        sys.exit(f"missing template: {TEMPLATE}")
+
+    data = build_data(repo, args.since, args.until)
+    html = TEMPLATE.read_text().replace("{{DATA_JSON}}", json.dumps(data))
+    out = Path(args.out).expanduser().resolve()
+    out.write_text(html)
+    print(f"wrote {out}  ({len(data['authors'])} authors, "
+          f"{len(data['months'])} months, "
+          f"{data['totals']['files_touched']} files)")
+    if args.open:
+        webbrowser.open(out.as_uri())
+
+
+if __name__ == "__main__":
+    main()

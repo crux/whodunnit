@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>whodunnit · git contributor dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --panel: #171c2e;
+    --panel-2: #1d2238;
+    --text: #e7ecf5;
+    --muted: #98a2b8;
+    --green: #9ece6a;
+    --red: #f7768e;
+    --accent: #7aa2f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    background: linear-gradient(135deg, #0b0f1d 0%, #141a30 100%);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 32px 24px 64px;
+  }
+  header { max-width: 1280px; margin: 0 auto 28px; text-align: center; }
+  h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.5px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .tiles {
+    max-width: 1280px;
+    margin: 0 auto 32px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 12px;
+    padding: 14px 18px;
+  }
+  .stat .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .stat .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  .stat .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .section { max-width: 1280px; margin: 0 auto 28px; }
+  .section h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    margin: 8px 4px 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .card .hint { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  .chart-wrap { position: relative; height: 320px; }
+  .full { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .punchcard { display: grid; grid-template-columns: 36px repeat(24, 1fr); gap: 2px; font-size: 11px; }
+  .punchcard .ph { color: var(--muted); text-align: right; padding-right: 6px; line-height: 22px; }
+  .punchcard .pc { background: rgba(122,162,247,0.05); border-radius: 3px; height: 22px; }
+  .punchcard .hr { color: var(--muted); text-align: center; padding-top: 4px; }
+
+  .minicards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .minicard {
+    background: var(--panel-2);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .minicard h4 {
+    margin: 0 0 8px; font-size: 13px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .minicard .ct { color: var(--muted); font-weight: 500; font-size: 11px; }
+  .minipunch { display: grid; grid-template-columns: 26px repeat(24, 1fr); gap: 1px; }
+  .minipunch .ph { color: var(--muted); text-align: right; padding-right: 4px; line-height: 11px; font-size: 9px; }
+  .minipunch .pc { height: 11px; background: rgba(122,162,247,0.05); border-radius: 2px; }
+
+  .tenure-row { display: grid; grid-template-columns: 140px 1fr 150px; gap: 10px; align-items: center; margin: 6px 0; font-size: 12px; }
+  .status-pill { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+  .tenure-track { position: relative; height: 14px; background: rgba(255,255,255,0.04); border-radius: 4px; }
+  .tenure-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; opacity: 0.85; }
+  .tenure-row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tenure-row .span { color: var(--muted); text-align: right; font-size: 11px; }
+
+  .year-card { background: var(--panel-2); border-radius: 10px; padding: 12px 14px; }
+  .year-card h4 { margin: 0 0 4px; font-size: 14px; display: flex; justify-content: space-between; }
+  .year-card .yt { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .year-card table { font-size: 12px; }
+  .year-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+
+  .heat-table { font-size: 11px; }
+  .heat-cell { display: inline-block; min-width: 32px; text-align: right; padding: 2px 6px; border-radius: 3px; font-variant-numeric: tabular-nums; }
+  .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; word-break: break-all; }
+
+  .cat-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .cat-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .cat-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; }
+
+  .bus-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 4px; }
+  .bus-tile { background: var(--panel-2); border-radius: 10px; padding: 14px 16px; }
+  .bus-tile .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .bus-tile .val { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  .bus-tile .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .bus-tile.warn .val { color: var(--red); }
+  .bus-tile.warn-soft .val { color: #e0af68; }
+  @media (max-width: 900px) { .bus-tiles { grid-template-columns: repeat(2, 1fr); } }
+
+  footer { max-width: 1280px; margin: 28px auto 0; color: var(--muted); font-size: 11px; text-align: center; }
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    .minicards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="title">whodunnit</h1>
+  <div class="sub"><span id="range">—</span> · generated <span id="gen">—</span></div>
+</header>
+
+<section class="tiles">
+  <div class="stat"><div class="label">Authors</div><div class="value" id="s-authors">—</div></div>
+  <div class="stat"><div class="label">Commits</div><div class="value" id="s-commits">—</div></div>
+  <div class="stat"><div class="label">Files touched</div><div class="value" id="s-files">—</div><div class="sub" id="s-files-sub"></div></div>
+  <div class="stat"><div class="label">Lines added</div><div class="value" style="color:var(--green)" id="s-added">—</div></div>
+  <div class="stat"><div class="label">Lines removed</div><div class="value" style="color:var(--red)" id="s-removed">—</div></div>
+</section>
+
+<section class="section">
+  <h2>Who</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Commits per author</h3>
+      <div class="hint">Sorted descending.</div>
+      <div class="chart-wrap"><canvas id="commitsChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Share of commits</h3>
+      <div class="hint">Same data, as a share of the total.</div>
+      <div class="chart-wrap"><canvas id="commitsPie"></canvas></div>
+    </div>
+    <div class="card full">
+      <h3>Lines added per author, by category</h3>
+      <div class="hint">Breaks the inflation problem open: code vs. markup vs. config vs. lockfile vs. other.</div>
+      <div id="catLegend" class="cat-legend"></div>
+      <div class="chart-wrap" style="height:340px"><canvas id="categoryChart"></canvas></div>
+    </div>
+    <div class="card full">
+      <h3>Lines added vs. removed (total)</h3>
+      <div class="hint">Aggregate view. See the by-category chart above to understand what's actually in there.</div>
+      <div class="chart-wrap" style="height:300px"><canvas id="linesChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Avg lines changed per commit</h3>
+      <div class="hint">Big number = few large drops. Small = many small commits.</div>
+      <div class="chart-wrap"><canvas id="avgChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Author tenure &amp; activity</h3>
+      <div class="hint">First commit to last commit, with months of activity in parentheses.</div>
+      <div id="tenure"></div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>When</h2>
+  <div class="grid">
+    <div class="card full">
+      <h3>Cumulative commits over time</h3>
+      <div class="hint">When each contributor was active. Monthly bucket.</div>
+      <div class="chart-wrap" style="height:380px"><canvas id="cumChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Cumulative lines added (all)</h3>
+      <div class="hint">Includes HTML, config, lockfiles — everything.</div>
+      <div class="chart-wrap" style="height:320px"><canvas id="cumLinesAll"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Cumulative lines added (code only)</h3>
+      <div class="hint">Markup, config, data, lockfiles excluded. Compare against the chart on the left.</div>
+      <div class="chart-wrap" style="height:320px"><canvas id="cumLinesCode"></canvas></div>
+    </div>
+    <div class="card full">
+      <h3>Monthly velocity</h3>
+      <div class="hint">Commits per month, stacked by author.</div>
+      <div class="chart-wrap" style="height:340px"><canvas id="velocityChart"></canvas></div>
+    </div>
+    <div class="card full">
+      <h3>Per-year breakdown</h3>
+      <div class="hint">Leaderboard per calendar year.</div>
+      <div id="yearGrid" class="year-grid"></div>
+    </div>
+    <div class="card full">
+      <h3>Codebase composition over time</h3>
+      <div class="hint">Lines added per month, stacked by category. Where is the codebase actually growing?</div>
+      <div class="chart-wrap" style="height:340px"><canvas id="compositionChart"></canvas></div>
+    </div>
+    <div class="card full">
+      <h3>When commits happen — per author</h3>
+      <div class="hint">Punch card per person (day × hour, author local time). Each grid normalized to that person's own peak.</div>
+      <div id="punchcardsMulti" class="minicards"></div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>What</h2>
+  <div class="grid">
+    <div class="card full">
+      <h3>File change hotspots</h3>
+      <div class="hint">Most-edited files. These often correlate with bug density and onboarding pain.</div>
+      <div id="hotspots"></div>
+    </div>
+    <div class="card full">
+      <h3>Extension breakdown</h3>
+      <div class="hint">Where edits land, by file extension. Top 15. Bar color = category.</div>
+      <div class="chart-wrap" style="height:380px"><canvas id="extChart"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Risk</h2>
+  <div class="grid">
+    <div class="card full">
+      <h3>Bus factor</h3>
+      <div class="hint">How many people would need to leave (worst-case, in priority order) before more than 50% of files lose their last author. Greedy removal.</div>
+      <div class="bus-tiles" id="busTiles"></div>
+    </div>
+
+    <div class="card full">
+      <h3>Per-author risk profile</h3>
+      <div class="hint">Solo files = only this person has ever touched. Dominant = &gt;50% of changes are theirs (with others involved too).</div>
+      <div id="riskTable"></div>
+    </div>
+
+    <div class="card full">
+      <h3>Onboarding hits by directory</h3>
+      <div class="hint">Solo files grouped by their containing directory — the subsystem-level handoff list. Sorted: gone/hiatus first, then by churn.</div>
+      <div id="onboardingDirs"></div>
+    </div>
+
+    <div class="card full">
+      <h3>Per-directory bus factor</h3>
+      <div class="hint">Directories with ≥5 alive files, sorted by lowest bus factor. Watch the category badge — vendored assets (PDFs, images, fonts) inflate this; real concerns are <code>code</code>-categorized rows.</div>
+      <div id="dirBus"></div>
+    </div>
+
+    <div class="card full">
+      <h3>Onboarding hit list (per file)</h3>
+      <div class="hint">Highest-churn solo files. Useful for spot-checks; the directory view above is usually more actionable.</div>
+      <div id="onboardingHits"></div>
+    </div>
+
+    <div class="card full">
+      <h3>Ownership concentration</h3>
+      <div class="hint">Distribution of files by top contributor's share. Green = healthy spread, red = single-owner.</div>
+      <div class="chart-wrap" style="height:280px"><canvas id="ownershipChart"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<footer>whodunnit · <code id="repo-path">—</code></footer>
+
+<script>
+  const DATA = {{DATA_JSON}};
+  const fmt = n => n.toLocaleString("en-US");
+  const palette = ["#7aa2f7","#bb9af7","#7dcfff","#9ece6a","#e0af68","#f7768e","#ff9e64","#73daca","#c0caf5","#b4f9f8","#f7c1c1","#a3e635"];
+  const colorFor = i => palette[i % palette.length];
+
+  const CATEGORY_COLORS = {
+    code:     "#9ece6a",
+    markup:   "#f7768e",  // highlighted because HTML/markup is the usual skew suspect
+    config:   "#7aa2f7",
+    data:     "#bb9af7",
+    lockfile: "#565a6e",
+    other:    "#e0af68",
+  };
+
+  // ---------- header / tiles ----------
+  document.getElementById("title").textContent = "whodunnit · " + DATA.repo_name;
+  document.getElementById("range").textContent =
+    (DATA.since ? "from " + DATA.since : "full history") +
+    (DATA.until ? " to " + DATA.until : "") +
+    (DATA.totals.first_day ? `  (${DATA.totals.first_day} → ${DATA.totals.last_day})` : "");
+  document.getElementById("gen").textContent = DATA.generated_at;
+  document.getElementById("repo-path").textContent = DATA.repo;
+
+  const totals = DATA.totals;
+  document.getElementById("s-authors").textContent = fmt(DATA.authors.length);
+  document.getElementById("s-commits").textContent = fmt(totals.commits);
+  document.getElementById("s-files").textContent   = fmt(totals.files_touched);
+  if (totals.files_touched_alive != null && totals.files_touched_alive !== totals.files_touched) {
+    document.getElementById("s-files-sub").textContent =
+      fmt(totals.files_touched_alive) + " still exist";
+  }
+  document.getElementById("s-added").textContent   = "+" + fmt(totals.added);
+  document.getElementById("s-removed").textContent = "−" + fmt(totals.removed);
+
+  Chart.defaults.color = "#cdd6e4";
+  Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, Inter, Segoe UI, sans-serif";
+
+  // ---------- WHO ----------
+  new Chart(document.getElementById("commitsChart"), {
+    type: "bar",
+    data: {
+      labels: DATA.authors.map(a => a.name),
+      datasets: [{
+        data: DATA.authors.map(a => a.commits),
+        backgroundColor: DATA.authors.map((_,i) => colorFor(i)),
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      indexAxis: "y", maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => fmt(ctx.parsed.x) + " commits" } } },
+      scales: {
+        x: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => fmt(v) } },
+        y: { grid: { display: false } }
+      }
+    }
+  });
+
+  new Chart(document.getElementById("commitsPie"), {
+    type: "doughnut",
+    data: {
+      labels: DATA.authors.map(a => a.name),
+      datasets: [{
+        data: DATA.authors.map(a => a.commits),
+        backgroundColor: DATA.authors.map((_,i) => colorFor(i)),
+        borderColor: "#171c2e", borderWidth: 2,
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "right", labels: { boxWidth: 12 } },
+        tooltip: { callbacks: {
+          label: ctx => {
+            const pct = (ctx.parsed / totals.commits * 100).toFixed(1);
+            return `${ctx.label}: ${fmt(ctx.parsed)} (${pct}%)`;
+          }
+        }}
+      }
+    }
+  });
+
+  // Category-stacked lines added per author
+  (function() {
+    const cats = DATA.category_order;
+    const legend = document.getElementById("catLegend");
+    legend.innerHTML = cats.map(c =>
+      `<span><span class="swatch" style="background:${CATEGORY_COLORS[c]}"></span>${c}</span>`
+    ).join("");
+
+    const sortedByTotal = [...DATA.author_categories].sort((a, b) => {
+      const sb = cats.reduce((s, c) => s + b.categories[c].added, 0);
+      const sa = cats.reduce((s, c) => s + a.categories[c].added, 0);
+      return sb - sa;
+    });
+
+    const datasets = cats.map(c => ({
+      label: c,
+      data: sortedByTotal.map(a => a.categories[c].added),
+      backgroundColor: CATEGORY_COLORS[c],
+      stack: "lines",
+    }));
+
+    new Chart(document.getElementById("categoryChart"), {
+      type: "bar",
+      data: { labels: sortedByTotal.map(a => a.name), datasets },
+      options: {
+        indexAxis: "y", maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: +${fmt(ctx.parsed.x)}` } }
+        },
+        scales: {
+          x: { stacked: true, grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => v >= 1000 ? (v/1000)+"k" : v } },
+          y: { stacked: true, grid: { display: false } }
+        }
+      }
+    });
+  })();
+
+  const linesSorted = [...DATA.authors].sort((a,b) => b.added - a.added);
+  new Chart(document.getElementById("linesChart"), {
+    type: "bar",
+    data: {
+      labels: linesSorted.map(a => a.name),
+      datasets: [
+        { label: "Added",   data: linesSorted.map(a => a.added),   backgroundColor: "#9ece6a", borderRadius: 6 },
+        { label: "Removed", data: linesSorted.map(a => a.removed), backgroundColor: "#f7768e", borderRadius: 6 },
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "top" },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => v >= 1000 ? (v/1000)+"k" : v } }
+      }
+    }
+  });
+
+  new Chart(document.getElementById("avgChart"), {
+    type: "bar",
+    data: {
+      labels: DATA.authors.map(a => a.name),
+      datasets: [{
+        data: DATA.authors.map(a => a.avg_lines),
+        backgroundColor: DATA.authors.map((_,i) => colorFor(i)),
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      indexAxis: "y", maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => fmt(ctx.parsed.x) + " lines/commit (avg)" } } },
+      scales: {
+        x: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => fmt(v) } },
+        y: { grid: { display: false } }
+      }
+    }
+  });
+
+  // Tenure (with active/hiatus/gone status relative to the data's latest day)
+  (function() {
+    const first = DATA.totals.first_day;
+    const last  = DATA.totals.last_day;
+    if (!first || !last) return;
+    const t0 = new Date(first).getTime();
+    const t1 = new Date(last).getTime();
+    const span = Math.max(1, t1 - t0);
+    const wrap = document.getElementById("tenure");
+    const DAY = 1000 * 60 * 60 * 24;
+    DATA.authors.forEach((a, i) => {
+      if (!a.first) return;
+      const af = new Date(a.first).getTime();
+      const al = new Date(a.last).getTime();
+      const leftPct  = ((af - t0) / span) * 100;
+      const widthPct = Math.max(1.5, ((al - af) / span) * 100);
+      const gapDays = Math.round((t1 - al) / DAY);
+      let status, color, bg;
+      if (gapDays <= 90)        { status = "active"; color = "#9ece6a"; bg = "rgba(158,206,106,0.18)"; }
+      else if (gapDays <= 365)  { status = "hiatus"; color = "#e0af68"; bg = "rgba(224,175,104,0.18)"; }
+      else                      { status = "gone";   color = "#f7768e"; bg = "rgba(247,118,142,0.18)"; }
+      const row = document.createElement("div");
+      row.className = "tenure-row";
+      row.innerHTML = `
+        <div class="name" title="${a.name}">${a.name}</div>
+        <div class="tenure-track">
+          <div class="tenure-fill" style="left:${leftPct}%;width:${widthPct}%;background:${colorFor(i)}" title="${a.first} → ${a.last}"></div>
+        </div>
+        <div class="span">
+          <span class="status-pill" style="color:${color};background:${bg}" title="${gapDays} days since last commit">${status}</span>
+          ${a.first.slice(2)}→${a.last.slice(2)} (${a.active_months}mo)
+        </div>
+      `;
+      wrap.appendChild(row);
+    });
+  })();
+
+  // ---------- WHEN ----------
+  function makeLineChart(canvasId, series, yLabelFn) {
+    new Chart(document.getElementById(canvasId), {
+      type: "line",
+      data: {
+        labels: DATA.months,
+        datasets: series.map((s, i) => ({
+          label: s.name,
+          data: s.data,
+          borderColor: colorFor(i),
+          backgroundColor: colorFor(i) + "22",
+          tension: 0.25, pointRadius: 0, borderWidth: 2, fill: false,
+        }))
+      },
+      options: {
+        maintainAspectRatio: false,
+        interaction: { mode: "nearest", axis: "x", intersect: false },
+        plugins: {
+          legend: { position: "top", labels: { boxWidth: 12 } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${(yLabelFn || fmt)(ctx.parsed.y)}` } }
+        },
+        scales: {
+          x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { autoSkip: true, maxTicksLimit: 16 } },
+          y: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => v >= 1000 ? (v/1000)+"k" : v } }
+        }
+      }
+    });
+  }
+
+  makeLineChart("cumChart", DATA.cumulative);
+  makeLineChart("cumLinesAll", DATA.cumulative_lines_all);
+  makeLineChart("cumLinesCode", DATA.cumulative_lines_code);
+
+  new Chart(document.getElementById("velocityChart"), {
+    type: "bar",
+    data: {
+      labels: DATA.velocity.months,
+      datasets: DATA.velocity.datasets.map((s, i) => ({
+        label: s.name,
+        data: s.data,
+        backgroundColor: colorFor(i),
+        stack: "v",
+      }))
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "top", labels: { boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { autoSkip: true, maxTicksLimit: 18 } },
+        y: { stacked: true, grid: { color: "rgba(255,255,255,0.06)" } }
+      }
+    }
+  });
+
+  // Per-year leaderboard
+  (function() {
+    const wrap = document.getElementById("yearGrid");
+    DATA.per_year.forEach(y => {
+      const card = document.createElement("div");
+      card.className = "year-card";
+      const rows = y.rows.map(r => `
+        <tr>
+          <td>${r.name}</td>
+          <td class="num">${fmt(r.commits)}</td>
+          <td class="num" style="color:var(--green)">+${fmt(r.added)}</td>
+          <td class="num" style="color:var(--red)">−${fmt(r.removed)}</td>
+        </tr>
+      `).join("");
+      card.innerHTML = `
+        <h4><span>${y.year}</span><span class="yt">${fmt(y.total)} commits</span></h4>
+        <table>
+          <thead><tr><th>Author</th><th class="num">Commits</th><th class="num">+</th><th class="num">−</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+      wrap.appendChild(card);
+    });
+  })();
+
+  // Aggregate punch card
+  function renderPunchcard(target, grid, opts) {
+    const dows = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    const cellClass = opts && opts.mini ? "minipunch" : "punchcard";
+    let max = 0;
+    grid.forEach(row => row.forEach(v => { if (v > max) max = v; }));
+    const el = document.createElement("div");
+    el.className = cellClass;
+    if (!opts || !opts.mini) {
+      el.innerHTML = `<div class="ph"></div>` +
+        Array.from({length:24}, (_,h) => `<div class="hr">${h%3===0?h:""}</div>`).join("");
+    }
+    grid.forEach((row, di) => {
+      el.innerHTML += `<div class="ph">${dows[di]}</div>` +
+        row.map((v, hi) => {
+          const a = max ? v / max : 0;
+          const bg = a > 0 ? `rgba(122,162,247,${0.08 + 0.85*a})` : "rgba(255,255,255,0.03)";
+          return `<div class="pc" style="background:${bg}" title="${dows[di]} ${hi}:00 — ${v} commits"></div>`;
+        }).join("");
+    });
+    target.appendChild(el);
+  }
+  // Codebase composition over time (stacked area, monthly, by category)
+  new Chart(document.getElementById("compositionChart"), {
+    type: "line",
+    data: {
+      labels: DATA.monthly_composition.months,
+      datasets: DATA.monthly_composition.datasets.map(d => ({
+        label: d.category,
+        data: d.data,
+        backgroundColor: CATEGORY_COLORS[d.category] + "cc",
+        borderColor: CATEGORY_COLORS[d.category],
+        borderWidth: 1,
+        fill: true,
+        pointRadius: 0,
+        tension: 0.2,
+      }))
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "top", labels: { boxWidth: 12 } },
+        tooltip: { mode: "index", callbacks: { label: ctx => `${ctx.dataset.label}: +${fmt(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { autoSkip: true, maxTicksLimit: 18 } },
+        y: { stacked: true, grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => v >= 1000 ? (v/1000)+"k" : v } }
+      }
+    }
+  });
+
+  // Per-author punch cards
+  (function() {
+    const wrap = document.getElementById("punchcardsMulti");
+    DATA.per_author_punchcards.forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "minicard";
+      card.innerHTML = `<h4><span>${p.name}</span><span class="ct">${fmt(p.commits)} commits</span></h4>`;
+      const grid = document.createElement("div");
+      card.appendChild(grid);
+      renderPunchcard(grid, p.grid, { mini: true });
+      wrap.appendChild(card);
+    });
+  })();
+
+  // ---------- WHAT ----------
+  // Hotspots
+  (function() {
+    const wrap = document.getElementById("hotspots");
+    const max = DATA.hotspots.length ? DATA.hotspots[0].changes : 1;
+    wrap.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>File</th>
+          <th class="num">Changes</th>
+          <th>Cat.</th>
+          <th class="num">Authors</th>
+          <th>Top contributor</th>
+        </tr></thead>
+        <tbody>
+          ${DATA.hotspots.map(h => {
+            const pct = (h.changes / max) * 100;
+            const c = CATEGORY_COLORS[h.category] || "#999";
+            return `<tr>
+              <td class="path">${h.path}</td>
+              <td class="num" style="background-image:linear-gradient(90deg, rgba(122,162,247,0.25) ${pct}%, transparent ${pct}%)">${fmt(h.changes)}</td>
+              <td><span class="cat-badge" style="background:${c}33;color:${c}">${h.category}</span></td>
+              <td class="num">${h.authors_touched}</td>
+              <td>${h.top_author} <span style="color:var(--muted)">(${(h.top_author_share*100).toFixed(0)}%)</span></td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>`;
+  })();
+
+  // ---------- RISK ----------
+  const STATUS_COLORS = {
+    active: { fg: "#9ece6a", bg: "rgba(158,206,106,0.18)" },
+    hiatus: { fg: "#e0af68", bg: "rgba(224,175,104,0.18)" },
+    gone:   { fg: "#f7768e", bg: "rgba(247,118,142,0.18)" },
+  };
+  const statusPill = s => {
+    const c = STATUS_COLORS[s] || STATUS_COLORS.active;
+    return `<span class="status-pill" style="color:${c.fg};background:${c.bg}">${s}</span>`;
+  };
+
+  // Bus-factor tiles
+  (function() {
+    const bf = DATA.bus_factor;
+    const wrap = document.getElementById("busTiles");
+    const danger = bf.n <= 1 ? "warn" : (bf.n <= 2 ? "warn-soft" : "");
+    const removed = bf.removed_order.join(", ") || "—";
+    wrap.innerHTML = `
+      <div class="bus-tile ${danger}">
+        <div class="lbl">Bus factor</div>
+        <div class="val">${bf.n}</div>
+        <div class="sub">of ${DATA.authors.length} authors</div>
+      </div>
+      <div class="bus-tile">
+        <div class="lbl">If gone in this order</div>
+        <div class="val" style="font-size:14px;line-height:1.4">${removed}</div>
+        <div class="sub">orphans &gt;50% of ${fmt(bf.total_files)} files</div>
+      </div>
+      <div class="bus-tile ${bf.orphaned_now > 0 ? 'warn' : ''}">
+        <div class="lbl">Orphaned now</div>
+        <div class="val">${fmt(bf.orphaned_now)}</div>
+        <div class="sub">sole author marked gone</div>
+      </div>
+      <div class="bus-tile ${bf.at_risk_hiatus > 0 ? 'warn-soft' : ''}">
+        <div class="lbl">At-risk (hiatus)</div>
+        <div class="val">${fmt(bf.at_risk_hiatus)}</div>
+        <div class="sub">sole author on hiatus</div>
+      </div>
+    `;
+  })();
+
+  // Per-author risk table
+  (function() {
+    const total = DATA.bus_factor.total_files;
+    const rows = DATA.per_author_risk.map(r => {
+      const pct = total ? (r.solo_files / total * 100).toFixed(1) : "0.0";
+      return `<tr>
+        <td>${r.name}</td>
+        <td>${statusPill(r.status)}</td>
+        <td class="num">${fmt(r.solo_files)} <span style="color:var(--muted)">(${pct}%)</span></td>
+        <td class="num">${fmt(r.dominant_files)}</td>
+        <td class="num">${fmt(r.solo_changes)}</td>
+      </tr>`;
+    }).join("");
+    document.getElementById("riskTable").innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Author</th><th>Status</th>
+          <th class="num">Solo files</th>
+          <th class="num">Dominant (&gt;50%)</th>
+          <th class="num">Σ solo changes</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  })();
+
+  // Onboarding hits by directory (subsystem-level)
+  (function() {
+    const wrap = document.getElementById("onboardingDirs");
+    const dirs = DATA.onboarding_dirs || [];
+    if (!dirs.length) {
+      wrap.innerHTML = `<div style="color:var(--muted);font-size:13px">No solo directories.</div>`;
+      return;
+    }
+    const rows = dirs.map(d => {
+      const c = CATEGORY_COLORS[d.top_category] || "#888";
+      const owners = d.owners.map(o =>
+        `${o.name} <span style="color:var(--muted)">(${o.files})</span> ${statusPill(o.status)}`
+      ).join(" · ");
+      return `<tr>
+        <td>${statusPill(d.worst_status)}</td>
+        <td class="path">${d.dir}/</td>
+        <td><span class="cat-badge" style="background:${c}33;color:${c}">${d.top_category}</span></td>
+        <td class="num">${fmt(d.n_files)}</td>
+        <td class="num">${fmt(d.churn)}</td>
+        <td>${owners}</td>
+      </tr>`;
+    }).join("");
+    wrap.innerHTML = `<table>
+      <thead><tr>
+        <th>Worst</th><th>Directory</th><th>Top cat.</th>
+        <th class="num">Solo files</th>
+        <th class="num">Σ churn</th>
+        <th>Sole owners (files, status)</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  })();
+
+  // Per-directory bus factor
+  (function() {
+    const wrap = document.getElementById("dirBus");
+    const dirs = DATA.dir_bus || [];
+    if (!dirs.length) {
+      wrap.innerHTML = `<div style="color:var(--muted);font-size:13px">No directories with ≥5 files.</div>`;
+      return;
+    }
+    const rows = dirs.map(d => {
+      const cat = d.top_category;
+      const c = CATEGORY_COLORS[cat] || "#888";
+      const bfColor = d.bus_factor <= 1 ? "color:var(--red)"
+                    : (d.bus_factor <= 2 ? "color:#e0af68" : "");
+      const removed = d.removed_order.slice(0, 3).map(n => {
+        const st = (DATA.per_author_risk.find(r => r.name === n) || {}).status || "active";
+        return `${n} ${statusPill(st)}`;
+      }).join(" → ");
+      return `<tr>
+        <td class="num"><span style="${bfColor};font-weight:600">${d.bus_factor}</span></td>
+        <td class="path">${d.dir}/</td>
+        <td><span class="cat-badge" style="background:${c}33;color:${c}">${cat}</span></td>
+        <td class="num">${fmt(d.n_files)}</td>
+        <td class="num">${d.n_authors}</td>
+        <td>${removed}</td>
+      </tr>`;
+    }).join("");
+    wrap.innerHTML = `<table>
+      <thead><tr>
+        <th class="num">BF</th><th>Directory</th><th>Top cat.</th>
+        <th class="num">Files</th><th class="num">Authors</th>
+        <th>Removal order (first 3)</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  })();
+
+  // Onboarding hit list (per file)
+  (function() {
+    const hits = DATA.onboarding_hits;
+    if (!hits.length) {
+      document.getElementById("onboardingHits").innerHTML =
+        `<div style="color:var(--muted);font-size:13px">No solo files. Knowledge is well distributed.</div>`;
+      return;
+    }
+    const rows = hits.map(h => {
+      const c = CATEGORY_COLORS[h.category] || "#888";
+      return `<tr>
+        <td>${statusPill(h.status)}</td>
+        <td>${h.owner}</td>
+        <td><span class="cat-badge" style="background:${c}33;color:${c}">${h.category}</span></td>
+        <td class="num">${fmt(h.changes)}</td>
+        <td class="path">${h.path}</td>
+      </tr>`;
+    }).join("");
+    document.getElementById("onboardingHits").innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Status</th><th>Sole author</th><th>Cat.</th>
+          <th class="num">Changes</th><th>File</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  })();
+
+  // Ownership concentration histogram (green → red)
+  (function() {
+    const bins = DATA.ownership_distribution;
+    const colors = bins.map((_, i) => {
+      const t = i / Math.max(1, bins.length - 1);
+      const hue = Math.round(140 - t * 140);  // 140 (green) → 0 (red)
+      return `hsl(${hue}, 60%, 55%)`;
+    });
+    const total = bins.reduce((s, b) => s + b.count, 0) || 1;
+    new Chart(document.getElementById("ownershipChart"), {
+      type: "bar",
+      data: {
+        labels: bins.map(b => b.label),
+        datasets: [{
+          data: bins.map(b => b.count),
+          backgroundColor: colors,
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => {
+            const v = ctx.parsed.y;
+            return `${fmt(v)} files (${(v/total*100).toFixed(1)}%)`;
+          }}}
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => fmt(v) } }
+        }
+      }
+    });
+  })();
+
+  // Extension bar chart (top 15) — colored by category
+  (function() {
+    const rows = DATA.extensions.slice(0, 15);
+    new Chart(document.getElementById("extChart"), {
+      type: "bar",
+      data: {
+        labels: rows.map(r => r.ext),
+        datasets: [{
+          data: rows.map(r => r.file_touches),
+          backgroundColor: rows.map(r => CATEGORY_COLORS[r.category] || "#888"),
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        indexAxis: "y", maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: {
+            label: ctx => {
+              const r = rows[ctx.dataIndex];
+              return `[${r.category}] ${fmt(r.file_touches)} touches · ${fmt(r.files)} files · +${fmt(r.added)} / −${fmt(r.removed)}`;
+            }
+          }}
+        },
+        scales: {
+          x: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => fmt(v) } },
+          y: { grid: { display: false } }
+        }
+      }
+    });
+  })();
+
+</script>
+
+</body>
+</html>

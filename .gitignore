@@ -1,0 +1,13 @@
+# Generated dashboards
+*.html
+!template.html
+
+# Local mailmap drafts — often contain private emails for specific repos
+*.mailmap.draft
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
