@@ -16,21 +16,38 @@ Optionally symlink it onto your `$PATH`.
 ## Usage
 
 ```
-whodunnit [REPO] [--since DATE] [--until DATE] [-o OUT] [--open]
+whodunnit [REPO] [--since DATE] [--until DATE] [--mode dashboard|slides] [-o OUT] [--open]
 ```
 
 - `REPO` — path to a git repository (default: current directory)
 - `--since` / `--until` — passed straight through to `git log` (e.g. `2025-01-01`)
-- `-o` — output HTML path (default: `./whodunnit.html`)
+- `--mode` — `dashboard` (default, single-page report) or `slides` (reveal.js presentation deck)
+- `--name` — display name override (when the directory name isn't the current product name)
+- `-o` — output HTML path (default: `whodunnit.html` or `whodunnit-slides.html` depending on mode)
 - `--open` — open the result in your browser
+
+### Repo-level config
+
+`whodunnit` also reads an optional `.whodunnit` file at the target repo's root for sticky overrides:
+
+```
+# .whodunnit
+name = MyProject
+```
+
+Useful when the on-disk directory name doesn't match how you'd refer to the project.
 
 ### Examples
 
 ```sh
 whodunnit ~/code/myrepo --open
 whodunnit ~/code/myrepo --since 2025-01-01 -o report-2025.html
-whodunnit ~/code/myrepo --since 2026-01-01 -o ytd.html --open
+whodunnit ~/code/myrepo --mode slides --open                # presentation deck
 ```
+
+### Slides mode
+
+Generates a self-contained [reveal.js](https://revealjs.com) deck with a curated narrative — title, team, by-the-numbers, lifecycle, year-by-year, commit distribution, work-category breakdown, composition trend, working patterns, hotspots, bus factor, onboarding hit list, and a data-derived closing-takeaways slide. Headlines are computed from the actual data, so each slide lands a message instead of being generic. Speaker notes are included (press `S` in the browser to open the presenter view) and PDF export works via the browser's print dialog with `?print-pdf` appended to the URL.
 
 ## What it shows
 

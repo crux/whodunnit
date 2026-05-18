@@ -1,6 +1,7 @@
 # Generated dashboards
 *.html
 !template.html
+!slides.html
 
 # Local mailmap drafts — often contain private emails for specific repos
 *.mailmap.draft

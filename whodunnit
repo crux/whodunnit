@@ -16,7 +16,14 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-TEMPLATE = HERE / "template.html"
+TEMPLATES = {
+    "dashboard": HERE / "template.html",
+    "slides":    HERE / "slides.html",
+}
+DEFAULT_OUT = {
+    "dashboard": "whodunnit.html",
+    "slides":    "whodunnit-slides.html",
+}
 
 # Categories let us answer "are line counts dominated by HTML / config / vendored?"
 # Order here is the display order in the dashboard.
@@ -166,6 +173,25 @@ def normalize_renamed_path(path: str) -> str:
     return path
 
 
+def read_whodunnit_config(repo: Path) -> dict:
+    """Read optional .whodunnit config file at the target repo's root.
+
+    Format is simple key=value lines (and # comments). Currently used for:
+      name = Some Display Name
+    """
+    path = repo / ".whodunnit"
+    config: dict = {}
+    if not path.exists():
+        return config
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        config[key.strip()] = value.strip().strip('"').strip("'")
+    return config
+
+
 def list_existing_files(repo: Path, until: str | None):
     """Return the set of paths in the repo tree at the end of the window.
 
@@ -260,7 +286,7 @@ def iter_file_changes(repo, since, until):
             continue
 
 
-def build_data(repo, since, until):
+def build_data(repo, since, until, name_override=None):
     commits = collect_all_commits(repo, since, until)
 
     commits_per_author = Counter()
@@ -617,6 +643,8 @@ def build_data(repo, since, until):
     ownership_distribution = [{"label": l, "count": c} for l, c in zip(bin_labels, bin_counts)]
 
     repo_path = Path(repo)
+    config = read_whodunnit_config(repo_path)
+    display_name = name_override or config.get("name") or repo_path.name
     try:
         origin = git(repo, "config", "--get", "remote.origin.url").strip()
     except subprocess.CalledProcessError:
@@ -624,7 +652,7 @@ def build_data(repo, since, until):
 
     return {
         "repo": str(repo_path),
-        "repo_name": repo_path.name,
+        "repo_name": display_name,
         "origin": origin,
         "since": since or "",
         "until": until or "",
@@ -685,19 +713,26 @@ def main():
     ap.add_argument("repo", nargs="?", default=".", help="path to git repo (default: cwd)")
     ap.add_argument("--since", help="git log --since value (e.g. 2025-01-01)")
     ap.add_argument("--until", help="git log --until value")
-    ap.add_argument("-o", "--out", default="whodunnit.html", help="output HTML path")
+    ap.add_argument("--mode", choices=list(TEMPLATES.keys()), default="dashboard",
+                    help="dashboard (one-page report, default) or slides (reveal.js deck)")
+    ap.add_argument("--name", help="display name for the repo (overrides directory name "
+                                   "and .whodunnit config)")
+    ap.add_argument("-o", "--out", default=None,
+                    help="output HTML path (default depends on --mode)")
     ap.add_argument("--open", action="store_true", help="open the result in your browser")
     args = ap.parse_args()
 
     repo = Path(args.repo).expanduser().resolve()
     if not (repo / ".git").exists():
         sys.exit(f"not a git repo: {repo}")
-    if not TEMPLATE.exists():
-        sys.exit(f"missing template: {TEMPLATE}")
+    template = TEMPLATES[args.mode]
+    if not template.exists():
+        sys.exit(f"missing template: {template}")
 
-    data = build_data(repo, args.since, args.until)
-    html = TEMPLATE.read_text().replace("{{DATA_JSON}}", json.dumps(data))
-    out = Path(args.out).expanduser().resolve()
+    data = build_data(repo, args.since, args.until, name_override=args.name)
+    html = template.read_text().replace("{{DATA_JSON}}", json.dumps(data))
+    out_path = args.out or DEFAULT_OUT[args.mode]
+    out = Path(out_path).expanduser().resolve()
     out.write_text(html)
     print(f"wrote {out}  ({len(data['authors'])} authors, "
           f"{len(data['months'])} months, "

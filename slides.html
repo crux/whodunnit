@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>whodunnit · presentation</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css" id="theme">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0b0f1d;
+    --panel: #171c2e;
+    --panel-2: #1d2238;
+    --text: #e7ecf5;
+    --muted: #98a2b8;
+    --green: #9ece6a;
+    --red: #f7768e;
+    --yellow: #e0af68;
+    --accent: #7aa2f7;
+  }
+
+  .reveal { font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; color: var(--text); }
+  .reveal .slides { text-align: left; }
+  .reveal .slides section { box-sizing: border-box; padding: 0 8px; }
+  body { background: var(--bg); }
+  .reveal { background: linear-gradient(135deg, #0b0f1d 0%, #141a30 100%); }
+
+  /* Typography */
+  .reveal h1, .reveal h2, .reveal h3 { color: var(--text); text-transform: none; letter-spacing: -0.5px; margin: 0; }
+  .reveal h1 { font-size: 2.4em; font-weight: 600; }
+  .reveal h2.eyebrow { font-size: 0.5em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 12px; font-weight: 500; }
+  .reveal h2.headline { font-size: 1.5em; font-weight: 600; line-height: 1.15; margin-bottom: 18px; }
+  .reveal h2.headline .accent { color: var(--accent); }
+  .reveal h2.headline .red    { color: var(--red); }
+  .reveal h2.headline .green  { color: var(--green); }
+  .reveal h2.headline .yellow { color: var(--yellow); }
+  .reveal p, .reveal li { font-size: 0.7em; color: var(--text); line-height: 1.45; }
+  .reveal p.lede { font-size: 0.85em; color: var(--muted); margin-top: 8px; }
+  .reveal small { font-size: 0.6em; color: var(--muted); }
+
+  /* Layout primitives */
+  .stage { display: grid; grid-template-rows: auto 1fr auto; height: 88vh; max-height: 700px; gap: 8px; }
+  .chart-wrap { position: relative; height: 100%; min-height: 380px; }
+  .body { min-height: 0; }
+  .footnote { font-size: 0.55em; color: var(--muted); margin-top: 8px; }
+
+  /* Tiles */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; align-content: center; height: 100%; }
+  .tiles.two { grid-template-columns: repeat(2, 1fr); }
+  .tiles.three { grid-template-columns: repeat(3, 1fr); }
+  .tile { background: var(--panel); border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; padding: 22px 26px; }
+  .tile .label { font-size: 0.55em; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+  .tile .value { font-size: 1.6em; font-weight: 600; margin-top: 6px; }
+  .tile .sub   { font-size: 0.55em; color: var(--muted); margin-top: 4px; }
+  .tile.muted .value { color: var(--muted); }
+  .tile.green .value { color: var(--green); }
+  .tile.red .value { color: var(--red); }
+  .tile.accent .value { color: var(--accent); }
+  .tile.huge .value { font-size: 3em; }
+  .tile.danger { border-color: rgba(247,118,142,0.3); }
+  .tile.danger .value { color: var(--red); }
+
+  /* Tables */
+  .reveal table { font-size: 0.65em; border-collapse: collapse; width: 100%; color: var(--text); }
+  .reveal th, .reveal td { padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; }
+  .reveal th { color: var(--muted); font-weight: 500; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+  .reveal td.num, .reveal th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .reveal td.path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.85em; word-break: break-all; }
+
+  /* Status pills */
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 5px; font-size: 0.85em; font-weight: 600; }
+  .pill.active { color: var(--green); background: rgba(158,206,106,0.18); }
+  .pill.hiatus { color: var(--yellow); background: rgba(224,175,104,0.18); }
+  .pill.gone   { color: var(--red);    background: rgba(247,118,142,0.18); }
+
+  /* Team list */
+  .team-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; font-size: 0.75em; }
+  .team-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 8px 12px; background: var(--panel); border-radius: 10px; }
+  .team-row .name { font-weight: 500; }
+  .team-row .meta { color: var(--muted); font-size: 0.85em; font-variant-numeric: tabular-nums; }
+
+  /* Punch cards */
+  .minicards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .minicard { background: var(--panel); border-radius: 10px; padding: 12px 14px; }
+  .minicard h4 { margin: 0 0 6px; font-size: 0.7em; color: var(--text); display: flex; justify-content: space-between; align-items: baseline; }
+  .minicard .ct { color: var(--muted); font-weight: 500; font-size: 0.85em; }
+  .minipunch { display: grid; grid-template-columns: 26px repeat(24, 1fr); gap: 1px; }
+  .minipunch .ph { color: var(--muted); text-align: right; padding-right: 4px; line-height: 12px; font-size: 9px; }
+  .minipunch .pc { height: 12px; background: rgba(122,162,247,0.05); border-radius: 2px; }
+
+  /* Bullets for takeaways */
+  .takeaways { display: grid; gap: 14px; }
+  .takeaway { background: var(--panel); border-left: 4px solid var(--accent); border-radius: 8px; padding: 14px 18px; font-size: 0.75em; }
+  .takeaway.warn  { border-left-color: var(--yellow); }
+  .takeaway.danger { border-left-color: var(--red); }
+  .takeaway strong { color: var(--text); }
+  .takeaway .lede { font-size: 0.9em; color: var(--muted); margin-top: 4px; }
+
+  /* Category swatch row */
+  .cats { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.55em; color: var(--muted); margin-top: 8px; }
+  .cats .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+
+  /* Print (PDF) */
+  @media print { .reveal { background: var(--bg); } }
+</style>
+</head>
+<body>
+
+<div class="reveal">
+  <div class="slides">
+
+    <!-- 1. Title -->
+    <section data-background-gradient="linear-gradient(135deg, #0b0f1d 0%, #1a2143 100%)">
+      <div style="display:flex; flex-direction:column; justify-content:center; height:80vh;">
+        <h2 class="eyebrow">whodunnit</h2>
+        <h1 id="title-repo" style="font-size:3.5em; line-height:1;">—</h1>
+        <p class="lede" id="title-range" style="font-size:1em; margin-top:18px;">—</p>
+        <p style="font-size:0.65em; color:var(--muted); margin-top:8px;" id="title-meta">—</p>
+      </div>
+      <aside class="notes">Open with the repo name and time window. This is a portrait drawn from git history — every number is exact, but interpretation matters.</aside>
+    </section>
+
+    <!-- 2. The team -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">The team</h2>
+          <h2 class="headline" id="team-headline">—</h2>
+        </div>
+        <div class="body">
+          <div class="team-list" id="team-list"></div>
+        </div>
+      </div>
+      <aside class="notes">Who actually appears in the history. Status reflects days since their last commit — active &lt;90d, hiatus 91–365d, gone &gt;1y.</aside>
+    </section>
+
+    <!-- 3. By the numbers -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">By the numbers</h2>
+          <h2 class="headline" id="numbers-headline">—</h2>
+        </div>
+        <div class="body">
+          <div class="tiles" id="numbers-tiles"></div>
+        </div>
+        <p class="footnote">Vendored / generated content (third-party bundles, bulk reference data marked via .gitattributes) shown separately — it inflates raw line counts but isn't authored work.</p>
+      </div>
+      <aside class="notes">Real authored lines vs. the noise. The vendored split is the headline insight: a chunk of what looks like "code" is third-party.</aside>
+    </section>
+
+    <!-- 4. When the work happened -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">When the work happened</h2>
+          <h2 class="headline" id="when-headline">—</h2>
+        </div>
+        <div class="body"><div class="chart-wrap"><canvas id="when-chart"></canvas></div></div>
+      </div>
+      <aside class="notes">Cumulative commits per author. You can see when each person joined, when they peaked, when (if) they tapered.</aside>
+    </section>
+
+    <!-- 5. Year by year -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">Year by year</h2>
+          <h2 class="headline" id="year-headline">—</h2>
+        </div>
+        <div class="body"><div id="year-grid"></div></div>
+      </div>
+      <aside class="notes">Top contributor per year. Watch how the leaderboard shifts (or doesn't).</aside>
+    </section>
+
+    <!-- 6. Who commits the most -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">Commits per author</h2>
+          <h2 class="headline" id="commits-headline">—</h2>
+        </div>
+        <div class="body"><div class="chart-wrap"><canvas id="commits-chart"></canvas></div></div>
+      </div>
+      <aside class="notes">Raw commit counts. Includes merges; doesn't say anything about commit size.</aside>
+    </section>
+
+    <!-- 7. What kinds of work -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">Lines, by what kind of file</h2>
+          <h2 class="headline" id="cat-headline">—</h2>
+        </div>
+        <div class="body">
+          <div class="chart-wrap"><canvas id="cat-chart"></canvas></div>
+          <div class="cats" id="cat-legend"></div>
+        </div>
+      </div>
+      <aside class="notes">This is where vendored gets exposed. Markup is also flagged separately since templates inflate line counts.</aside>
+    </section>
+
+    <!-- 8. Composition over time -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">Codebase composition over time</h2>
+          <h2 class="headline" id="comp-headline">—</h2>
+        </div>
+        <div class="body"><div class="chart-wrap"><canvas id="comp-chart"></canvas></div></div>
+      </div>
+      <aside class="notes">Lines added per month, stacked by category. Reveals whether the work shape is consistent or shifting.</aside>
+    </section>
+
+    <!-- 9. Working patterns -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">Working patterns</h2>
+          <h2 class="headline" id="punch-headline">—</h2>
+        </div>
+        <div class="body"><div class="minicards" id="punch-cards"></div></div>
+      </div>
+      <aside class="notes">Day-of-week × hour heatmap per person, normalized to each person's own peak. Reveals individual rhythms — early birds, weekend workers, evening grinders.</aside>
+    </section>
+
+    <!-- 10. Hotspots -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">Where the churn is</h2>
+          <h2 class="headline" id="hotspots-headline">—</h2>
+        </div>
+        <div class="body"><div id="hotspots-table"></div></div>
+      </div>
+      <aside class="notes">Files edited the most. Research correlates these with bug density. Worth knowing before any refactor.</aside>
+    </section>
+
+    <!-- 11. Bus factor -->
+    <section data-background-gradient="linear-gradient(135deg, #1a0e1a 0%, #2a1228 100%)">
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow" style="color:var(--red)">Bus factor</h2>
+          <h2 class="headline" id="bus-headline">—</h2>
+        </div>
+        <div class="body">
+          <div class="tiles three" id="bus-tiles"></div>
+        </div>
+        <p class="footnote">Bus factor = smallest set of contributors whose departure would leave &gt;50% of currently-existing files with no remaining author. Greedy removal in priority order.</p>
+      </div>
+      <aside class="notes">The drama slide. State the number, explain who's on the chopping block, surface the count of files already orphaned by departures.</aside>
+    </section>
+
+    <!-- 12. Onboarding hit list -->
+    <section>
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">Onboarding hit list</h2>
+          <h2 class="headline" id="onboard-headline">—</h2>
+        </div>
+        <div class="body"><div id="onboard-table"></div></div>
+      </div>
+      <aside class="notes">Subsystems where the only author has left or paused. Real action items: each row is a handoff that needs a plan.</aside>
+    </section>
+
+    <!-- 13. Takeaways -->
+    <section data-background-gradient="linear-gradient(135deg, #0b0f1d 0%, #1a2143 100%)">
+      <div class="stage">
+        <div>
+          <h2 class="eyebrow">Three things to remember</h2>
+        </div>
+        <div class="body" style="display:flex; align-items:center;">
+          <div class="takeaways" id="takeaways" style="width:100%;"></div>
+        </div>
+        <p class="footnote">Generated by whodunnit · <span id="closing-repo">—</span></p>
+      </div>
+      <aside class="notes">Wrap with the three biggest signals from this run. Auto-derived from the data so they stay honest.</aside>
+    </section>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+
+<script>
+  const DATA = {{DATA_JSON}};
+  const fmt = n => (n == null ? "—" : n.toLocaleString("en-US"));
+  const fmtCompact = n => n >= 1000 ? (n/1000).toFixed(n >= 10000 ? 0 : 1) + "k" : n;
+
+  const palette = ["#7aa2f7","#bb9af7","#7dcfff","#9ece6a","#e0af68","#f7768e","#ff9e64","#73daca","#c0caf5","#b4f9f8","#f7c1c1","#a3e635"];
+  const colorFor = i => palette[i % palette.length];
+
+  const CATEGORY_COLORS = {
+    code:     "#9ece6a",
+    markup:   "#f7768e",
+    config:   "#7aa2f7",
+    data:     "#bb9af7",
+    asset:    "#9aa5b1",
+    vendored: "#5c6478",
+    lockfile: "#565a6e",
+    other:    "#e0af68",
+  };
+
+  Chart.defaults.color = "#cdd6e4";
+  Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, Inter, Segoe UI, sans-serif";
+
+  // ---------- Derived narrative helpers ----------
+
+  function authorStatus(author) {
+    const r = (DATA.per_author_risk || []).find(x => x.name === author);
+    return r ? r.status : "active";
+  }
+
+  function categoryAdded(cat) {
+    return (DATA.author_categories || []).reduce(
+      (s, a) => s + (a.categories[cat]?.added || 0), 0
+    );
+  }
+
+  function totalAuthoredLines() {
+    return categoryAdded("code") + categoryAdded("markup") + categoryAdded("config") + categoryAdded("data");
+  }
+
+  function authoredFor(author) {
+    const a = (DATA.author_categories || []).find(x => x.name === author);
+    if (!a) return 0;
+    return ["code","markup","config","data"].reduce((s,c) => s + (a.categories[c]?.added || 0), 0);
+  }
+
+  // ---------- Slide 1: Title ----------
+  document.getElementById("title-repo").textContent = DATA.repo_name;
+  document.getElementById("title-range").textContent =
+    (DATA.since ? "from " + DATA.since : "full history") +
+    (DATA.until ? " to " + DATA.until : "") +
+    (DATA.totals.first_day ? "   ·   " + DATA.totals.first_day + " → " + DATA.totals.last_day : "");
+  document.getElementById("title-meta").textContent =
+    `${DATA.authors.length} contributors · ${fmt(DATA.totals.commits)} commits · generated ${DATA.generated_at.slice(0,10)}`;
+
+  // ---------- Slide 2: The team ----------
+  (function() {
+    const authors = DATA.authors;
+    const active = authors.filter(a => authorStatus(a.name) === "active").length;
+    const hiatus = authors.filter(a => authorStatus(a.name) === "hiatus").length;
+    const gone   = authors.filter(a => authorStatus(a.name) === "gone").length;
+
+    let headline;
+    if (authors.length === 1) {
+      headline = "A <span class='accent'>solo</span> project.";
+    } else if (gone === 0 && hiatus === 0) {
+      headline = `<span class='green'>${authors.length} contributors</span>, all still active.`;
+    } else if (gone === 0) {
+      headline = `<span class='accent'>${active}</span> active · <span class='yellow'>${hiatus}</span> on hiatus.`;
+    } else {
+      headline = `<span class='accent'>${active}</span> active · <span class='yellow'>${hiatus}</span> on hiatus · <span class='red'>${gone}</span> gone.`;
+    }
+    document.getElementById("team-headline").innerHTML = headline;
+
+    const list = document.getElementById("team-list");
+    authors.forEach(a => {
+      const st = authorStatus(a.name);
+      const row = document.createElement("div");
+      row.className = "team-row";
+      row.innerHTML = `
+        <div class="name">${a.name}</div>
+        <div class="meta">${fmt(a.commits)} commits</div>
+        <div><span class="pill ${st}">${st}</span></div>
+      `;
+      list.appendChild(row);
+    });
+  })();
+
+  // ---------- Slide 3: By the numbers ----------
+  (function() {
+    const code = categoryAdded("code");
+    const markup = categoryAdded("markup");
+    const config = categoryAdded("config");
+    const vendored = categoryAdded("vendored");
+    const authored = totalAuthoredLines();
+    const all = authored + vendored;
+    const vendoredPct = all ? Math.round(vendored / all * 100) : 0;
+
+    let headline;
+    if (vendoredPct >= 25) {
+      headline = `<span class='yellow'>${vendoredPct}%</span> of recorded lines are vendored or generated — the real work is smaller than it looks.`;
+    } else if (vendoredPct > 0) {
+      headline = `Mostly real work — only <span class='accent'>${vendoredPct}%</span> vendored.`;
+    } else {
+      headline = `<span class='accent'>${fmt(authored)}</span> lines of authored content.`;
+    }
+    document.getElementById("numbers-headline").innerHTML = headline;
+
+    document.getElementById("numbers-tiles").innerHTML = `
+      <div class="tile accent">
+        <div class="label">Authored code</div>
+        <div class="value">${fmtCompact(code)}</div>
+        <div class="sub">lines added</div>
+      </div>
+      <div class="tile red">
+        <div class="label">Markup &amp; templates</div>
+        <div class="value">${fmtCompact(markup)}</div>
+        <div class="sub">lines added</div>
+      </div>
+      <div class="tile">
+        <div class="label">Config</div>
+        <div class="value">${fmtCompact(config)}</div>
+        <div class="sub">lines added</div>
+      </div>
+      <div class="tile muted">
+        <div class="label">Vendored / generated</div>
+        <div class="value">${fmtCompact(vendored)}</div>
+        <div class="sub">third-party + bulk imports</div>
+      </div>
+    `;
+  })();
+
+  // ---------- Chart factories (lazy: create on slide show) ----------
+  const chartFactories = {};
+
+  // Slide 4: When (cumulative commits)
+  (function() {
+    const top = (DATA.cumulative || []).find(s => s.data.length);
+    const finalCount = top ? top.data[top.data.length - 1] : 0;
+    const spanMonths = (DATA.months || []).length;
+    let headline;
+    if (DATA.authors.length === 1) {
+      headline = `${fmt(DATA.totals.commits)} commits across ${spanMonths} months.`;
+    } else {
+      const lead = DATA.authors[0];
+      const leadPct = DATA.totals.commits ? Math.round(lead.commits / DATA.totals.commits * 100) : 0;
+      headline = `<span class='accent'>${lead.name}</span> led with <span class='accent'>${leadPct}%</span> of commits across ${spanMonths} months.`;
+    }
+    document.getElementById("when-headline").innerHTML = headline;
+
+    chartFactories["when-chart"] = () => new Chart(document.getElementById("when-chart"), {
+      type: "line",
+      data: {
+        labels: DATA.months,
+        datasets: (DATA.cumulative || []).map((s, i) => ({
+          label: s.name,
+          data: s.data,
+          borderColor: colorFor(i),
+          tension: 0.25, pointRadius: 0, borderWidth: 2, fill: false,
+        }))
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "top", labels: { boxWidth: 10, font: { size: 10 } } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
+        },
+        scales: {
+          x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { autoSkip: true, maxTicksLimit: 14, font: { size: 10 } } },
+          y: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => fmtCompact(v), font: { size: 10 } } }
+        }
+      }
+    });
+  })();
+
+  // Slide 5: Year by year
+  (function() {
+    const years = DATA.per_year || [];
+    if (!years.length) return;
+    const biggest = years.reduce((b, y) => y.total > b.total ? y : b, years[0]);
+    document.getElementById("year-headline").innerHTML =
+      `<span class='accent'>${biggest.year}</span> was the biggest year — ${fmt(biggest.total)} commits.`;
+
+    const cols = years.map(y => {
+      const top = y.rows[0];
+      const rest = y.rows.slice(1, 4);
+      const restRows = rest.map(r => `<tr><td>${r.name}</td><td class="num">${fmt(r.commits)}</td></tr>`).join("");
+      return `
+        <div class="tile" style="text-align:left">
+          <div class="label">${y.year}</div>
+          <div class="value" style="font-size:1.1em">${fmt(y.total)}</div>
+          <div class="sub" style="margin-bottom:8px">commits · top: ${top ? top.name : "—"}</div>
+          <table style="font-size:0.7em">${restRows}</table>
+        </div>`;
+    }).join("");
+
+    document.getElementById("year-grid").innerHTML =
+      `<div class="tiles" style="grid-template-columns: repeat(${Math.min(years.length, 5)}, 1fr); align-content:start">${cols}</div>`;
+  })();
+
+  // Slide 6: Who commits the most
+  (function() {
+    const a = DATA.authors;
+    if (!a.length) return;
+    const top1 = a[0];
+    const top2 = a[1];
+    let headline;
+    if (a.length === 1) {
+      headline = `${top1.name} authored every commit.`;
+    } else {
+      const pct = DATA.totals.commits ? Math.round(top1.commits / DATA.totals.commits * 100) : 0;
+      const top3pct = DATA.totals.commits ? Math.round(a.slice(0,3).reduce((s,x)=>s+x.commits,0) / DATA.totals.commits * 100) : 0;
+      if (pct >= 50) {
+        headline = `<span class='yellow'>${top1.name}</span> alone produced <span class='yellow'>${pct}%</span> of commits.`;
+      } else {
+        headline = `Top 3 produced <span class='accent'>${top3pct}%</span> of commits.`;
+      }
+    }
+    document.getElementById("commits-headline").innerHTML = headline;
+
+    chartFactories["commits-chart"] = () => new Chart(document.getElementById("commits-chart"), {
+      type: "bar",
+      data: {
+        labels: a.map(x => x.name),
+        datasets: [{
+          data: a.map(x => x.commits),
+          backgroundColor: a.map((_,i) => colorFor(i)),
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { font: { size: 11 } } },
+          y: { grid: { display: false }, ticks: { font: { size: 12 } } }
+        }
+      }
+    });
+  })();
+
+  // Slide 7: Lines by category
+  (function() {
+    const cats = DATA.category_order || [];
+    document.getElementById("cat-legend").innerHTML = cats.map(c =>
+      `<span><span class="swatch" style="background:${CATEGORY_COLORS[c]}"></span>${c}</span>`
+    ).join("");
+
+    // Headline: who has the highest vendored share, or markup share if no vendored
+    const rows = DATA.author_categories || [];
+    let headline;
+    const totalVendored = categoryAdded("vendored");
+    const totalAuthored = totalAuthoredLines();
+    if (totalVendored > totalAuthored * 0.2) {
+      const topVendored = rows.reduce((b, a) =>
+        ((a.categories.vendored?.added || 0) > (b?.categories.vendored?.added || 0)) ? a : b, null);
+      const v = topVendored ? topVendored.categories.vendored.added : 0;
+      headline = `<span class='yellow'>${topVendored?.name}</span> committed <span class='yellow'>${fmtCompact(v)}</span> lines of vendored content — visible as the muted band.`;
+    } else {
+      const topMarkup = rows.reduce((b, a) => {
+        const total = ["code","markup","config","data"].reduce((s,c)=>s+(a.categories[c]?.added||0),0);
+        const ms = total ? (a.categories.markup?.added || 0) / total : 0;
+        const bs = b ? (b._ms || 0) : 0;
+        return ms > bs ? Object.assign({}, a, { _ms: ms }) : b;
+      }, null);
+      if (topMarkup && topMarkup._ms > 0.5) {
+        headline = `<span class='red'>${topMarkup.name}</span> wrote <span class='red'>${Math.round(topMarkup._ms*100)}%</span> markup — mostly templates.`;
+      } else {
+        headline = "Work is balanced across categories.";
+      }
+    }
+    document.getElementById("cat-headline").innerHTML = headline;
+
+    const sorted = [...rows].sort((a, b) => {
+      const sb = cats.reduce((s,c) => s + (b.categories[c]?.added || 0), 0);
+      const sa = cats.reduce((s,c) => s + (a.categories[c]?.added || 0), 0);
+      return sb - sa;
+    });
+    const datasets = cats.map(c => ({
+      label: c,
+      data: sorted.map(a => a.categories[c]?.added || 0),
+      backgroundColor: CATEGORY_COLORS[c],
+      stack: "lines",
+    }));
+
+    chartFactories["cat-chart"] = () => new Chart(document.getElementById("cat-chart"), {
+      type: "bar",
+      data: { labels: sorted.map(a => a.name), datasets },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { stacked: true, grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => fmtCompact(v), font: { size: 10 } } },
+          y: { stacked: true, grid: { display: false }, ticks: { font: { size: 12 } } }
+        }
+      }
+    });
+  })();
+
+  // Slide 8: Composition over time
+  (function() {
+    const comp = DATA.monthly_composition || { months: [], datasets: [] };
+    if (!comp.months.length) {
+      document.getElementById("comp-headline").textContent = "No data.";
+      return;
+    }
+    // Compare ratio of code vs markup in last 6 months
+    const last6 = Math.max(0, comp.months.length - 6);
+    const totals = {};
+    for (const ds of comp.datasets) {
+      totals[ds.category] = ds.data.slice(last6).reduce((s,x) => s+x, 0);
+    }
+    const recentCode = totals.code || 0;
+    const recentMarkup = totals.markup || 0;
+    let headline;
+    if (recentMarkup > recentCode * 1.5) {
+      headline = `Lately: <span class='red'>markup dominates</span> — heavy template work.`;
+    } else if (recentCode > recentMarkup * 1.5) {
+      headline = `Lately: <span class='green'>code dominates</span> — backend / business logic.`;
+    } else {
+      headline = `Lately: code and markup roughly balanced.`;
+    }
+    document.getElementById("comp-headline").innerHTML = headline;
+
+    chartFactories["comp-chart"] = () => new Chart(document.getElementById("comp-chart"), {
+      type: "line",
+      data: {
+        labels: comp.months,
+        datasets: comp.datasets.map(d => ({
+          label: d.category,
+          data: d.data,
+          backgroundColor: CATEGORY_COLORS[d.category] + "cc",
+          borderColor: CATEGORY_COLORS[d.category],
+          borderWidth: 1, fill: true, pointRadius: 0, tension: 0.2,
+        }))
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "top", labels: { boxWidth: 10, font: { size: 10 } } },
+          tooltip: { mode: "index", callbacks: { label: ctx => `${ctx.dataset.label}: +${fmt(ctx.parsed.y)}` } }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { autoSkip: true, maxTicksLimit: 16, font: { size: 10 } } },
+          y: { stacked: true, grid: { color: "rgba(255,255,255,0.06)" }, ticks: { callback: v => fmtCompact(v), font: { size: 10 } } }
+        }
+      }
+    });
+  })();
+
+  // Slide 9: Working patterns
+  (function() {
+    const cards = (DATA.per_author_punchcards || []).slice(0, 6);
+    if (!cards.length) return;
+    document.getElementById("punch-headline").innerHTML =
+      `Different people, <span class='accent'>different rhythms</span>.`;
+
+    const wrap = document.getElementById("punch-cards");
+    const dows = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    cards.forEach(p => {
+      let max = 0;
+      p.grid.forEach(r => r.forEach(v => { if (v > max) max = v; }));
+      const card = document.createElement("div");
+      card.className = "minicard";
+      let inner = `<h4><span>${p.name}</span><span class="ct">${fmt(p.commits)}</span></h4>`;
+      inner += `<div class="minipunch">`;
+      p.grid.forEach((row, di) => {
+        inner += `<div class="ph">${dows[di]}</div>`;
+        row.forEach((v, hi) => {
+          const a = max ? v / max : 0;
+          const bg = a > 0 ? `rgba(122,162,247,${0.08 + 0.85*a})` : "rgba(255,255,255,0.03)";
+          inner += `<div class="pc" style="background:${bg}" title="${dows[di]} ${hi}:00 — ${v} commits"></div>`;
+        });
+      });
+      inner += `</div>`;
+      card.innerHTML = inner;
+      wrap.appendChild(card);
+    });
+  })();
+
+  // Slide 10: Hotspots
+  (function() {
+    const hs = (DATA.hotspots || []).slice(0, 10);
+    if (!hs.length) return;
+    const top = hs[0];
+    document.getElementById("hotspots-headline").innerHTML =
+      `<span class='accent'>${fmt(top.changes)}</span> changes to one file — and it's still in the tree.`;
+
+    const max = top.changes;
+    const rows = hs.map(h => {
+      const c = CATEGORY_COLORS[h.category] || "#888";
+      const pct = (h.changes / max) * 100;
+      return `<tr>
+        <td class="path">${h.path}</td>
+        <td class="num" style="background-image:linear-gradient(90deg, rgba(122,162,247,0.25) ${pct}%, transparent ${pct}%)">${fmt(h.changes)}</td>
+        <td><span class="pill" style="background:${c}33;color:${c}">${h.category}</span></td>
+        <td>${h.top_author} <small>(${Math.round(h.top_author_share*100)}%)</small></td>
+      </tr>`;
+    }).join("");
+
+    document.getElementById("hotspots-table").innerHTML = `
+      <table>
+        <thead><tr><th>File</th><th class="num">Changes</th><th>Cat.</th><th>Top contributor</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  })();
+
+  // Slide 11: Bus factor
+  (function() {
+    const bf = DATA.bus_factor || {};
+    let headline;
+    if (bf.n === 1) {
+      headline = `<span class='red'>Bus factor: 1.</span> If <strong>${bf.removed_order[0]}</strong> leaves, half the repo loses its last author.`;
+    } else if (bf.n === 2) {
+      headline = `<span class='yellow'>Bus factor: 2.</span> Two specific departures would tip the threshold.`;
+    } else if (bf.n >= 3) {
+      headline = `<span class='green'>Bus factor: ${bf.n}.</span> Knowledge is reasonably distributed.`;
+    } else {
+      headline = "Bus factor: —";
+    }
+    document.getElementById("bus-headline").innerHTML = headline;
+
+    const orphanedClass = bf.orphaned_now > 0 ? "danger" : "";
+    const hiatusClass   = bf.at_risk_hiatus > 0 ? "" : "";
+    document.getElementById("bus-tiles").innerHTML = `
+      <div class="tile huge danger">
+        <div class="label">Bus factor</div>
+        <div class="value">${bf.n ?? "—"}</div>
+        <div class="sub">of ${DATA.authors.length} authors</div>
+      </div>
+      <div class="tile ${orphanedClass}">
+        <div class="label">Orphaned now</div>
+        <div class="value">${fmt(bf.orphaned_now ?? 0)}</div>
+        <div class="sub">files with sole author marked gone</div>
+      </div>
+      <div class="tile">
+        <div class="label">At-risk (hiatus)</div>
+        <div class="value">${fmt(bf.at_risk_hiatus ?? 0)}</div>
+        <div class="sub">files with sole author on hiatus</div>
+      </div>
+    `;
+  })();
+
+  // Slide 12: Onboarding hit list (by directory)
+  (function() {
+    const dirs = (DATA.onboarding_dirs || []).filter(d =>
+      d.worst_status !== "active"
+    ).slice(0, 8);
+
+    if (!dirs.length) {
+      document.getElementById("onboard-headline").innerHTML =
+        `<span class='green'>No subsystems need a handoff today.</span>`;
+      document.getElementById("onboard-table").innerHTML = "";
+      return;
+    }
+    document.getElementById("onboard-headline").innerHTML =
+      `<span class='yellow'>${dirs.length}</span> subsystems with no currently-active sole owner.`;
+
+    const rows = dirs.map(d => {
+      const c = CATEGORY_COLORS[d.top_category] || "#888";
+      const owners = d.owners.slice(0, 2).map(o =>
+        `${o.name} <span class="pill ${o.status}">${o.status}</span>`
+      ).join(" · ");
+      return `<tr>
+        <td><span class="pill ${d.worst_status}">${d.worst_status}</span></td>
+        <td class="path">${d.dir}</td>
+        <td><span class="pill" style="background:${c}33;color:${c}">${d.top_category}</span></td>
+        <td class="num">${d.n_files}</td>
+        <td>${owners}</td>
+      </tr>`;
+    }).join("");
+
+    document.getElementById("onboard-table").innerHTML = `
+      <table>
+        <thead><tr><th>Status</th><th>Directory</th><th>Cat.</th><th class="num">Files</th><th>Sole owners</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  })();
+
+  // Slide 13: Takeaways (data-derived)
+  (function() {
+    const authors = DATA.authors;
+    const active = authors.filter(a => authorStatus(a.name) === "active").length;
+    const hiatus = authors.filter(a => authorStatus(a.name) === "hiatus").length;
+    const gone   = authors.filter(a => authorStatus(a.name) === "gone").length;
+    const bf = DATA.bus_factor || {};
+    const vendored = categoryAdded("vendored");
+    const authored = totalAuthoredLines();
+    const all = authored + vendored;
+    const vendoredPct = all ? Math.round(vendored / all * 100) : 0;
+    const hitDirs = (DATA.onboarding_dirs || []).filter(d => d.worst_status !== "active").length;
+
+    const takeaways = [];
+
+    // 1. Team health
+    if (authors.length === 1) {
+      takeaways.push({
+        cls: "danger",
+        text: `<strong>Single-author project.</strong>`,
+        sub:  `Everything here depends on one person.`,
+      });
+    } else if (gone > 0 || hiatus > 0) {
+      takeaways.push({
+        cls: hiatus + gone > active ? "danger" : "warn",
+        text: `<strong>${active} of ${authors.length} contributors are still active.</strong>`,
+        sub:  `${hiatus} on hiatus, ${gone} gone.`,
+      });
+    } else {
+      takeaways.push({
+        cls: "",
+        text: `<strong>All ${authors.length} contributors are still active.</strong>`,
+        sub:  `No one is currently on hiatus or gone.`,
+      });
+    }
+
+    // 2. Work shape
+    if (vendoredPct >= 25) {
+      takeaways.push({
+        cls: "warn",
+        text: `<strong>${vendoredPct}% of recorded lines are vendored or generated.</strong>`,
+        sub:  `Real authored work: ${fmt(authored)} lines, not the headline ${fmt(all)}.`,
+      });
+    } else {
+      takeaways.push({
+        cls: "",
+        text: `<strong>${fmt(authored)} lines of authored content</strong> across ${fmt(DATA.totals.files_touched_alive ?? DATA.totals.files_touched)} files still in the tree.`,
+        sub:  `Mostly real work; ${vendoredPct}% vendored.`,
+      });
+    }
+
+    // 3. Risk
+    if (bf.n === 1) {
+      takeaways.push({
+        cls: "danger",
+        text: `<strong>Bus factor: 1.</strong> ${bf.removed_order ? bf.removed_order[0] : "One person"} leaving orphans more than half the repo.`,
+        sub:  hitDirs > 0
+              ? `${hitDirs} subsystems already need a handoff plan.`
+              : `No immediate handoffs needed, but the dependency is concentrated.`,
+      });
+    } else if (bf.n === 2) {
+      takeaways.push({
+        cls: "warn",
+        text: `<strong>Bus factor: 2.</strong> Two specific departures would tip the repo.`,
+        sub:  hitDirs > 0 ? `${hitDirs} subsystems need a handoff plan today.` : `Worth watching.`,
+      });
+    } else if (bf.n >= 3) {
+      takeaways.push({
+        cls: "",
+        text: `<strong>Bus factor: ${bf.n}.</strong> Knowledge is reasonably distributed.`,
+        sub:  hitDirs > 0 ? `Still: ${hitDirs} subsystems lack an active owner.` : `No handoffs urgently needed.`,
+      });
+    }
+
+    document.getElementById("takeaways").innerHTML = takeaways.map(t =>
+      `<div class="takeaway ${t.cls}">${t.text}<div class="lede">${t.sub}</div></div>`
+    ).join("");
+    document.getElementById("closing-repo").textContent = DATA.repo_name;
+  })();
+
+  // ---------- Reveal init + chart lifecycle ----------
+  Reveal.initialize({
+    hash: true,
+    width: 1280,
+    height: 800,
+    margin: 0.04,
+    controls: true,
+    progress: true,
+    history: true,
+    transition: "fade",
+    plugins: [ RevealNotes ],
+  });
+
+  // Charts can render before reveal finishes layout — create lazily on slide-show.
+  const built = new Set();
+  function buildChartsInCurrent() {
+    const slide = Reveal.getCurrentSlide();
+    if (!slide) return;
+    slide.querySelectorAll("canvas[id]").forEach(c => {
+      if (built.has(c.id)) return;
+      const factory = chartFactories[c.id];
+      if (factory) {
+        factory();
+        built.add(c.id);
+      }
+    });
+  }
+  Reveal.on("ready",            buildChartsInCurrent);
+  Reveal.on("slidechanged",     buildChartsInCurrent);
+  Reveal.on("slidetransitionend", buildChartsInCurrent);
+</script>
+
+</body>
+</html>
