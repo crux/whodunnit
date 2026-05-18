@@ -91,9 +91,44 @@ VENDORED_PATTERNS = (
 )
 
 
+LINGUIST_EXCLUDED: set = set()  # set per-run by build_data via .gitattributes
+
+
 def is_vendored(path: str) -> bool:
+    if path in LINGUIST_EXCLUDED:
+        return True
     p = "/" + path.lower()
     return any(pat in p for pat in VENDORED_PATTERNS)
+
+
+def read_linguist_excluded(repo: Path, paths) -> set:
+    """Return paths marked `linguist-generated` or `linguist-vendored` in .gitattributes.
+
+    Uses `git check-attr` so any .gitattributes pattern (globs, negations, paths
+    in subdirectories) works exactly as it would for GitHub's linguist.
+    """
+    if not paths:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "check-attr", "--stdin",
+             "linguist-generated", "linguist-vendored"],
+            input="\n".join(paths),
+            capture_output=True, text=True, check=False,
+        )
+    except FileNotFoundError:
+        return set()
+    if proc.returncode != 0:
+        return set()
+    excluded = set()
+    for line in proc.stdout.splitlines():
+        parts = line.rsplit(": ", 2)
+        if len(parts) != 3:
+            continue
+        path, _attr, value = parts
+        if value in ("set", "true"):
+            excluded.add(path)
+    return excluded
 
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
@@ -267,6 +302,12 @@ def build_data(repo, since, until):
     # month -> category -> added lines (for repo composition over time)
     monthly_added_by_cat = defaultdict(lambda: defaultdict(int))
 
+    # Compute existing tree + linguist exclusions BEFORE the file-changes loop
+    # so per-file category routing already reflects .gitattributes markers.
+    existing_files = list_existing_files(repo, until)
+    global LINGUIST_EXCLUDED
+    LINGUIST_EXCLUDED = read_linguist_excluded(repo, existing_files or set())
+
     for name, iso, path, a, r, _binary in iter_file_changes(repo, since, until):
         added[name] += a
         removed[name] += r
@@ -294,7 +335,6 @@ def build_data(repo, since, until):
     # Filter file-level analyses to files that still exist in the tree at
     # the end of the window. History-level stats (commits, lines added) stay
     # unfiltered — they're about activity, not current state.
-    existing_files = list_existing_files(repo, until)
     if existing_files is not None:
         file_authors_live = {p: ac for p, ac in file_authors.items() if p in existing_files}
         file_changes_live = Counter({p: c for p, c in file_changes.items() if p in existing_files})

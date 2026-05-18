@@ -55,6 +55,21 @@ Canonical Name <canonical@email> <commit@email>
 
 This benefits every other git tool too (log, blame, shortlog, GitHub UI).
 
+## Marking generated / vendored files
+
+`whodunnit` respects the target repo's `.gitattributes` for `linguist-generated` and `linguist-vendored` markers — the same conventions GitHub's linguist library uses. Marked files are routed into the `vendored` category so they don't inflate author attribution.
+
+```
+# in your repo's .gitattributes
+src/data/big-reference-dump.json linguist-generated=true
+vendor/**                        linguist-vendored=true
+docs/CHANGELOG.md                linguist-generated=true
+```
+
+This is the right way to handle bulk reference data, auto-generated lockfiles, or third-party content that one person happened to commit. It benefits GitHub's contributor graph too.
+
+`whodunnit` also has a built-in path heuristic (`/node_modules/`, `/vendor/`, `/pdfjs/`, `/bootstrap/`, etc.) so the common cases work out of the box without any setup.
+
 ## Notes on metrics
 
 - **Lines added/removed** is noisy. Lockfiles, generated code, vendored deps, and formatter sweeps inflate it. The category split exists so you can see what's actually in there.
