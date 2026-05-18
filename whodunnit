@@ -18,9 +18,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 TEMPLATE = HERE / "template.html"
 
-# Categories let us answer "are line counts dominated by HTML / config / docs?"
+# Categories let us answer "are line counts dominated by HTML / config / vendored?"
 # Order here is the display order in the dashboard.
-CATEGORY_ORDER = ["code", "markup", "config", "data", "lockfile", "other"]
+CATEGORY_ORDER = ["code", "markup", "config", "data", "asset", "vendored", "lockfile", "other"]
 
 EXT_CATEGORIES = {
     "code": {
@@ -28,7 +28,7 @@ EXT_CATEGORIES = {
         ".java", ".kt", ".kts", ".scala", ".groovy", ".clj",
         ".go", ".rs", ".c", ".h", ".cc", ".cpp", ".hpp", ".m", ".mm",
         ".rb", ".php", ".cs", ".swift", ".dart", ".lua", ".ex", ".exs",
-        ".sh", ".zsh", ".bash", ".fish", ".ps1",
+        ".sh", ".zsh", ".bash", ".fish", ".ps1", ".bat", ".cmd",
         ".sql", ".feature", ".ipynb",
         "makefile", "rakefile",
     },
@@ -39,6 +39,7 @@ EXT_CATEGORIES = {
         ".md", ".rst", ".adoc", ".txt",
         ".tpl", ".ftl", ".mustache", ".hbs", ".ejs", ".pug",
         ".liquid", ".twig", ".thymeleaf", ".jsp", ".jspx",
+        ".mmd",
     },
     "config": {
         ".yaml", ".yml", ".json", ".jsonc", ".xml",
@@ -55,10 +56,44 @@ EXT_CATEGORIES = {
         ".csv", ".tsv", ".graphql", ".gql", ".proto", ".avsc",
         ".http",
     },
+    # Binary / opaque assets — fonts, images, PDFs, archives, sourcemaps.
+    # Most of these show as binary in numstat (no line count) but still
+    # count as file touches and inflate "other" or category buckets if
+    # not separated.
+    "asset": {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff", ".svg",
+        ".pdf",
+        ".ttf", ".otf", ".woff", ".woff2", ".eot",
+        ".mp3", ".mp4", ".wav", ".mov", ".webm", ".ogg", ".flac",
+        ".bcmap",
+        ".map",
+        ".jar", ".war", ".ear", ".zip", ".tar", ".gz", ".tgz", ".7z",
+        ".class",
+        ".pyc",
+        ".keystore", ".jks", ".p12", ".pfx", ".pem", ".crt", ".cer", ".key", ".p7s",
+        ".pfb",
+    },
     "lockfile": {"lockfile"},
 }
 
 EXT_TO_CATEGORY = {ext: cat for cat, exts in EXT_CATEGORIES.items() for ext in exts}
+
+# Path substrings (case-insensitive, framed with /) that mark a file as
+# vendored / third-party. Vendored wins over extension category.
+VENDORED_PATTERNS = (
+    "/node_modules/", "/bower_components/",
+    "/vendor/", "/vendored/",
+    "/third_party/", "/third-party/",
+    "/pdfjs/", "/bootstrap/", "/jquery/", "/select2/",
+    "/pods/",
+    "/wwwroot/lib/",
+    "/.gradle/",
+)
+
+
+def is_vendored(path: str) -> bool:
+    p = "/" + path.lower()
+    return any(pat in p for pat in VENDORED_PATTERNS)
 
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
@@ -138,12 +173,15 @@ def ext_of(path: str) -> str:
     return ext
 
 
-def category_of(ext: str) -> str:
+def category_of(ext: str, path: str = "") -> str:
+    """Map an extension to a category. Vendored paths win over extension."""
+    if path and is_vendored(path):
+        return "vendored"
     return EXT_TO_CATEGORY.get(ext, "other")
 
 
 def collect_all_commits(repo, since, until):
-    args = ["log", "--pretty=%aN%x09%aI"]
+    args = ["-c", "core.quotepath=false", "log", "--pretty=%aN%x09%aI"]
     if since: args.append(f"--since={since}")
     if until: args.append(f"--until={until}")
     rows = []
@@ -160,7 +198,7 @@ def collect_all_commits(repo, since, until):
 
 def iter_file_changes(repo, since, until):
     """Yield (author, iso, path, added, removed, is_binary) for non-merge commits."""
-    args = ["log", "--pretty=format:__C__%x09%aN%x09%aI", "--numstat", "--no-merges"]
+    args = ["-c", "core.quotepath=false", "log", "--pretty=format:__C__%x09%aN%x09%aI", "--numstat", "--no-merges"]
     if since: args.append(f"--since={since}")
     if until: args.append(f"--until={until}")
     out = git(repo, *args)
@@ -239,7 +277,7 @@ def build_data(repo, since, until):
         yearly_lines[year][name]["added"] += a
         yearly_lines[year][name]["removed"] += r
         ext = ext_of(path)
-        cat = category_of(ext)
+        cat = category_of(ext, path)
         ext_totals[ext]["file_touches"] += 1
         ext_totals[ext]["added"] += a
         ext_totals[ext]["removed"] += r
@@ -275,7 +313,7 @@ def build_data(repo, since, until):
             "top_author": top_author,
             "top_author_share": round(top_count / count, 3) if count else 0,
             "ext": ext_of(path),
-            "category": category_of(ext_of(path)),
+            "category": category_of(ext_of(path), path),
         })
 
     velocity = {
@@ -381,7 +419,7 @@ def build_data(repo, since, until):
             "dominant_files": len(dominant_paths),
             "solo_changes": sum(file_changes_live[p] for p in solo_paths),
             "top_solo": [
-                {"path": p, "changes": c, "category": category_of(ext_of(p))}
+                {"path": p, "changes": c, "category": category_of(ext_of(p), p)}
                 for p, c in top_solo
             ],
         })
@@ -431,7 +469,7 @@ def build_data(repo, since, until):
             "owner": owner,
             "status": author_status.get(owner, "active"),
             "changes": file_changes_live[p],
-            "category": category_of(ext_of(p)),
+            "category": category_of(ext_of(p), p),
         })
     solo_all.sort(key=lambda r: (status_priority[r["status"]], -r["changes"]))
     onboarding_hits = solo_all[:30]
@@ -503,7 +541,7 @@ def build_data(repo, since, until):
             st = author_status.get(name, "active")
             if status_priority[st] < status_priority[worst]:
                 worst = st
-        cat_counts = Counter(category_of(ext_of(p)) for p in paths)
+        cat_counts = Counter(category_of(ext_of(p), p) for p in paths)
         top_cat = cat_counts.most_common(1)[0][0]
         dir_bus.append({
             "dir": d,
