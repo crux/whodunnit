@@ -857,23 +857,50 @@
     plugins: [ RevealNotes ],
   });
 
-  // Charts can render before reveal finishes layout — create lazily on slide-show.
+  // Charts are normally created lazily on slide-show. In print-pdf mode all
+  // slides render at once and slidechanged events don't fire, so we eagerly
+  // build every chart up front.
   const built = new Set();
+  function buildChart(canvas) {
+    if (built.has(canvas.id)) return;
+    const factory = chartFactories[canvas.id];
+    if (factory) { factory(); built.add(canvas.id); }
+  }
+  function buildAllCharts() {
+    document.querySelectorAll("canvas[id]").forEach(buildChart);
+  }
   function buildChartsInCurrent() {
     const slide = Reveal.getCurrentSlide();
     if (!slide) return;
-    slide.querySelectorAll("canvas[id]").forEach(c => {
-      if (built.has(c.id)) return;
-      const factory = chartFactories[c.id];
-      if (factory) {
-        factory();
-        built.add(c.id);
-      }
-    });
+    slide.querySelectorAll("canvas[id]").forEach(buildChart);
   }
-  Reveal.on("ready",            buildChartsInCurrent);
-  Reveal.on("slidechanged",     buildChartsInCurrent);
+
+  const isPdfMode = window.location.search.includes("print-pdf");
+
+  Reveal.on("ready", () => {
+    if (isPdfMode) {
+      // Reload landed on the print URL — eager-build then trigger print.
+      Chart.defaults.animation = false;
+      buildAllCharts();
+      setTimeout(() => window.print(), 800);
+    } else {
+      buildChartsInCurrent();
+    }
+  });
+  Reveal.on("slidechanged",       buildChartsInCurrent);
   Reveal.on("slidetransitionend", buildChartsInCurrent);
+
+  // Press "E" to export → reloads into reveal's print-pdf mode, which
+  // auto-triggers the print dialog (via the ready handler above).
+  // Shows up in reveal's ? help overlay automatically.
+  Reveal.addKeyBinding(
+    { keyCode: 69, key: "E", description: "Save as PDF" },
+    () => {
+      const url = new URL(window.location);
+      url.searchParams.set("print-pdf", "");
+      window.location.href = url.toString();
+    }
+  );
 </script>
 
 </body>
